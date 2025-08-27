@@ -1,0 +1,21 @@
+import express from "express";
+const app = express();
+import jobRouter from "./routers/job.router.js";
+import { authenticate } from "./auth.js";
+import {connectDB} from "./db/db.js";
+import {initKafka} from "./config/kafka.js";
+
+connectDB();
+initKafka();
+
+app.use(authenticate);
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+app.get("/", (req, res) => {
+    res.send("Job Service");
+});
+
+app.use("/jobs", jobRouter);
+
+export default app;

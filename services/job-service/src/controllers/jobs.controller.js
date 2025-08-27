@@ -1,0 +1,390 @@
+import { v4 as uuidv4 } from 'uuid';
+import Job,{ JobEventService, JobVectorService, StatsService } from '../model/job.model.js';
+import { sanitizeInput, sanitizeUserId } from '../utils/security.js';
+import * as jobService from '../services/job.services.js';
+import { validateCreateJobInput, validateUpdateJobInput, validateListJobsFilters } from '../utils/validators.js';
+import logger from '../utils/logger.js';
+import CustomError from '../utils/CustomError.js';
+import CustomSuccess from '../utils/CustomSuccess.js';
+
+// Constants for HTTP status codes
+const HTTP_STATUS = {
+  OK: 200,
+  CREATED: 201,
+  BAD_REQUEST: 400,
+  NOT_FOUND: 404,
+  FORBIDDEN: 403,
+  INTERNAL_SERVER_ERROR: 500,
+};
+
+// Constants for error messages
+const ERROR_MESSAGES = {
+  INVALID_INPUT: 'Invalid input data',
+  JOB_NOT_FOUND: 'Job not found',
+  FORBIDDEN: 'User not authorized',
+  JOB_CREATION_FAILED: 'Failed to create job',
+  JOB_UPDATE_FAILED: 'Failed to update job',
+  JOB_DELETE_FAILED: 'Failed to delete job',
+  JOB_LIST_FAILED: 'Failed to list jobs',
+  FEATURED_JOBS_FAILED: 'Failed to fetch featured jobs',
+};
+
+// Constants for success messages
+const SUCCESS_MESSAGES = {
+  JOB_CREATED: 'Job created successfully',
+  JOB_UPDATED: 'Job updated successfully',
+  JOB_DELETED: 'Job deleted successfully',
+  JOB_FOUND: 'Job retrieved successfully',
+  JOBS_LISTED: 'Jobs retrieved successfully',
+  FEATURED_JOBS: 'Featured jobs retrieved successfully',
+};
+
+//Create a new job (POST /jobs)
+export const createJobController = async (req, res) => {
+  const requestId = uuidv4();
+  const startTime = Date.now();
+
+  try {
+    // Sanitize and validate input
+    const sanitizedInput = sanitizeInput(req.body);
+    const { error, value } = validateCreateJobInput(sanitizedInput);
+    if (error) {
+      logger.warn(`[${requestId}] Invalid input for job creation: ${error.details[0].message}`, {
+        userId: req.user?.id,
+        input: sanitizedInput,
+      });
+      throw new CustomError({
+        success: false,
+        message: ERROR_MESSAGES.INVALID_INPUT,
+         statusCode: HTTP_STATUS.BAD_REQUEST,
+          details: error.details
+         });
+    }
+
+     // Check user authorization
+    if (!req.user || !req.user.canCreateJobs) {
+      logger.warn(`[${requestId}] Unauthorized job creation attempt`, { userId: req.user?.id });
+      return res.status(HTTP_STATUS.FORBIDDEN).json(new CustomError({
+        success: false,
+        message: ERROR_MESSAGES.FORBIDDEN,
+        statusCode: HTTP_STATUS.FORBIDDEN
+      }));
+    }
+
+    const createJob = await jobService.createJob({userId : req.user, requestId, sanitizedInput});
+
+
+    // Log success
+    logger.info(`[${requestId}] Job created successfully`, {
+      jobId: createJob.jobId,
+      companyId: createJob.companyId,
+      userId: createdBy,
+      duration: Date.now() - startTime,
+    });
+
+    return res.status(HTTP_STATUS.CREATED).json(new CustomSuccess({
+      message: SUCCESS_MESSAGES.JOB_CREATED,
+      data: {
+        jobId: createJob.jobId,
+        title: createJob.title,
+        companyId: createJob.companyId,
+        status: createJob.status,
+        createdAt: createJob.createdAt,
+      },
+    }));
+  } catch (error) {
+    logger.error(`[${requestId}] Failed to create job: ${error.message}`, {
+      userId: req.user?.id,
+      error: error.stack,
+      input: req.body,
+      duration: Date.now() - startTime,
+    });
+    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(new CustomError({
+      success: false,
+      message: ERROR_MESSAGES.INTERNAL_SERVER_ERROR,
+      error: error.message,
+    }));
+  }
+};
+
+//Get single job by ID (GET /jobs/:jobId)
+export const getJobByIdController = async (req, res) => {
+  const requestId = uuidv4();
+  const startTime = Date.now();
+
+  try {
+    const { jobId } = req.params;
+    if (!mongoose.isValidObjectId(jobId) || !jobId || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(jobId)) {
+        return res.status(HTTP_STATUS.BAD_REQUEST).json(
+          new CustomError({
+            message: ERROR_MESSAGES.INVALID_INPUT,
+            statusCode: HTTP_STATUS.BAD_REQUEST
+        })
+      );
+    }
+
+ const job = await jobService.getJobById({ jobId, requestId });
+
+    logger.info(`[${requestId}] Job retrieved successfully`, {
+      jobId,
+      userId: req.user?.id,
+      duration: Date.now() - startTime,
+    });
+
+    return res.status(HTTP_STATUS.OK).json({
+      success: true,
+      message: SUCCESS_MESSAGES.JOB_FOUND,
+      data: job,
+    });
+  } catch (error) {
+    logger.error(`[${requestId}] Failed to fetch job: ${error.message}`, {
+      jobId: req.params.jobId,
+      userId: req.user?.id,
+      error: error.stack,
+      duration: Date.now() - startTime,
+    });
+    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(new CustomError({
+      message: ERROR_MESSAGES.INTERNAL_SERVER_ERROR,
+      statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR,
+      details: error.details
+    }));
+  }
+};
+
+//Update job by ID (PUT /jobs/:jobId)
+export const updateJobController = async (req, res) => {
+  const requestId = uuidv4();
+  const startTime = Date.now();
+
+  try {
+    const { jobId } = req.params;
+    if(!mongoose.isValidObjectId(jobId) || !jobId || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(jobId)) {
+        return res.status(HTTP_STATUS.BAD_REQUEST).json(
+          new CustomError({
+            message: ERROR_MESSAGES.INVALID_INPUT,
+            statusCode: HTTP_STATUS.BAD_REQUEST
+          })
+        );
+    }
+    const sanitizedInput = sanitizeInput(req.body);
+    const { error, value } = validateUpdateJobInput(sanitizedInput);
+    if (error) {
+      logger.warn(`[${requestId}] Invalid input for job update: ${error.details[0].message}`, {
+        jobId,
+        userId: req.user?.id,
+        input: sanitizedInput,
+      });
+      return res.status(HTTP_STATUS.BAD_REQUEST).json(
+        new CustomError({
+          message: ERROR_MESSAGES.INVALID_INPUT,
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+          details: error.details
+        })
+      );
+    }
+
+    if (!req.user || !req.user.canUpdateJobs) {
+      logger.warn(`[${requestId}] Unauthorized job update attempt`, { jobId, userId: req.user?.id });
+      return res.status(HTTP_STATUS.FORBIDDEN).json(
+        new CustomError({ message: ERROR_MESSAGES.FORBIDDEN, statusCode: HTTP_STATUS.FORBIDDEN })
+      );
+    }
+
+    const updateJob = await jobService.updateJob({ jobId, userId: req.user?.id, requestId, updates: sanitizedInput });
+    if (!updateJob) {
+      logger.warn(`[${requestId}] Job not found for update`, { jobId, userId: req.user?.id });
+      return res.status(HTTP_STATUS.NOT_FOUND).json(
+        new CustomError({ 
+            message: ERROR_MESSAGES.JOB_NOT_FOUND, 
+            statusCode: HTTP_STATUS.NOT_FOUND 
+        })
+      );
+    }
+
+    logger.info(`[${requestId}] Job updated successfully`, {
+      jobId,
+      userId: req.user?.id,
+      duration: Date.now() - startTime,
+    });
+
+    return res.status(HTTP_STATUS.OK).json({
+      success: true,
+      message: SUCCESS_MESSAGES.JOB_UPDATED,
+      data: {
+        jobId: job.jobId,
+        title: job.title,
+        companyId: job.companyId,
+        status: job.status,
+        updatedAt: job.updatedAt,
+      },
+    });
+  } catch (error) {
+    logger.error(`[${requestId}] Failed to update job: ${error.message}`, {
+      jobId: req.params.jobId,
+      userId: req.user?.id,
+      error: error.stack,
+      input: req.body,
+      duration: Date.now() - startTime,
+    });
+    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(new CustomError({
+      message: ERROR_MESSAGES.INTERNAL_SERVER_ERROR,
+      statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR,
+      details: error.details
+    }));
+  }
+};
+
+//Soft delete job (DELETE /jobs/:jobId)
+export const deleteJobController = async (req, res) => {
+  const requestId = uuidv4();
+  const startTime = Date.now();
+  const { jobId } = req.params;
+
+  try {
+    if (!jobId || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(jobId)) {
+      throw new CustomError({
+        message: ERROR_MESSAGES.INVALID_INPUT,
+        statusCode: HTTP_STATUS.BAD_REQUEST
+      });
+    }
+
+    if (!req.user || !req.user.canDeleteJobs) {
+      logger.warn(`[${requestId}] Unauthorized job deletion attempt`, { jobId, userId: req.user?.id });
+      throw new CustomError({
+        message: ERROR_MESSAGES.FORBIDDEN,
+        statusCode: HTTP_STATUS.FORBIDDEN
+      });
+    }
+
+    const updatedBy = sanitizeUserId(req.user.id);
+    const job = await Job.findOneAndUpdate(
+      { jobId, isDeleted: false },
+      { $set: { isDeleted: true, updatedBy, 'dates.lastUpdated': new Date() }, $inc: { version: 1 } },
+      { new: true }
+    ).lean();
+
+    if (!job) {
+      logger.warn(`[${requestId}] Job not found for deletion`, { jobId, userId: req.user?.id });
+      throw new CustomError(ERROR_MESSAGES.JOB_NOT_FOUND, HTTP_STATUS.NOT_FOUND);
+    }
+
+    // Emit job deleted event
+    await JobEventService.emit('job:deleted', {
+      jobId,
+      requestId,
+    });
+
+    logger.info(`[${requestId}] Job deleted successfully`, {
+      jobId,
+      userId: req.user?.id,
+      duration: Date.now() - startTime,
+    });
+
+    return res.status(HTTP_STATUS.OK).json({
+      success: true,
+      message: SUCCESS_MESSAGES.JOB_DELETED,
+    });
+  } catch (error) {
+    logger.error(`[${requestId}] Failed to delete job: ${error.message}`, {
+      jobId: req.params.jobId,
+      userId: req.user?.id,
+      error: error.stack,
+      duration: Date.now() - startTime,
+    });
+    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(new CustomError({
+      message: ERROR_MESSAGES.INTERNAL_SERVER_ERROR,
+      statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR,
+      details: error.details
+    }));
+  }
+};
+
+  //List/filter/search jobs (GET /jobs)
+export const listJobsController = async (req, res) => {
+  const requestId = uuidv4();
+  const startTime = Date.now();
+  const sanitizedFilters = sanitizeInput(req.query);
+
+  try {
+    const { error, value } = validateListJobsFilters(sanitizedFilters);
+    if (error) {
+      logger.warn(`[${requestId}] Invalid filters for listing jobs: ${error.details[0].message}`, {
+        userId: req.user?.id,
+        filters: sanitizedFilters,
+      });
+      throw new CustomError({
+        message: ERROR_MESSAGES.INVALID_INPUT,
+        statusCode: HTTP_STATUS.BAD_REQUEST,
+        details: error.details
+      });
+    }
+
+const jobList = await jobService.listJobs({ filters: sanitizedFilters, requestId });
+
+    logger.info(`[${requestId}] Jobs listed successfully`, {
+      userId: req.user?.id,
+      count: jobList.length,
+      filters,
+      duration: Date.now() - startTime,
+    });
+
+    return res.status(HTTP_STATUS.OK).json({
+      success: true,
+      message: SUCCESS_MESSAGES.JOBS_LISTED,
+      count: jobs.length,
+      data: jobs,
+    });
+  } catch (error) {
+    logger.error(`[${requestId}] Failed to list jobs: ${error.message}`, {
+      userId: req.user?.id,
+      error: error.stack,
+      filters: req.query,
+      duration: Date.now() - startTime,
+    });
+    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(new CustomError({
+      message: ERROR_MESSAGES.INTERNAL_SERVER_ERROR,
+      statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR,
+      details: error.details
+    }));
+  }
+};
+
+/**
+ * Get featured jobs (GET /jobs/featured)
+ */
+export const featuredJobsController = async (req, res) => {
+  const requestId = uuidv4();
+  const startTime = Date.now();
+
+  try {
+    
+    const jobs = await jobService.getFeaturedJobs({ requestId });
+    if (!jobs || jobs.length === 0) {
+      logger.warn(`[${requestId}] No featured jobs found`, { userId: req.user?.id });
+      throw new CustomError({
+        message: ERROR_MESSAGES.FEATURED_JOBS_FAILED,
+        statusCode: HTTP_STATUS.NOT_FOUND
+      });
+    }
+
+    logger.info(`[${requestId}] Featured jobs retrieved successfully`, {
+      userId: req.user?.id,
+      count: jobs.length,
+      duration: Date.now() - startTime,
+    });
+
+    return res.status(HTTP_STATUS.OK).json({
+      success: true,
+      message: SUCCESS_MESSAGES.FEATURED_JOBS,
+      count: jobs.length,
+      data: jobs,
+    });
+  } catch (error) {
+    logger.error(`[${requestId}] Failed to fetch featured jobs: ${error.message}`, {
+      userId: req.user?.id,
+      error: error.stack,
+      duration: Date.now() - startTime,
+    });
+    next(error);
+  }
+};
