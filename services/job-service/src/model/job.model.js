@@ -675,7 +675,7 @@ class JobVectorService {
   static weaviateClient = weaviate.client({
     scheme: 'https',
     host: process.env.WEAVIATE_HOST,
-    apiKey: { apiKey: process.env.WEAVIATE_API_KEY }
+    apiKey:new weaviate.ApiKey(process.env.WEAVIATE_API_KEY)
   });
   
   static async generateJobEmbedding(job) {

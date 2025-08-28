@@ -1,7 +1,7 @@
 
    export const authenticate = (req, res, next) => {
      req.user = {
-       id: 'user-123e4567-e89b-12d3-a456-426614174000',
+       id: ' 44e32d64-5c51-4887-ba8c-b7f60c2a25ac',
        canCreateJobs: true,
        canUpdateJobs: true,
        canDeleteJobs: true,

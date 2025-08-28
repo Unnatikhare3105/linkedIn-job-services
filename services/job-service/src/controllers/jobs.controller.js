@@ -2,7 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import Job,{ JobEventService, JobVectorService, StatsService } from '../model/job.model.js';
 import { sanitizeInput, sanitizeUserId } from '../utils/security.js';
 import * as jobService from '../services/job.services.js';
-import { validateCreateJobInput, validateUpdateJobInput, validateListJobsFilters } from '../utils/validators.js';
+import { normalizeArrayFields, validateCreateJobInput, validateUpdateJobInput, validateListJobsFilters } from '../utils/validators.js';
 import logger from '../utils/logger.js';
 import CustomError from '../utils/CustomError.js';
 import CustomSuccess from '../utils/CustomSuccess.js';
@@ -45,20 +45,30 @@ export const createJobController = async (req, res) => {
   const startTime = Date.now();
 
   try {
-    // Sanitize and validate input
-    const sanitizedInput = sanitizeInput(req.body);
-    const { error, value } = validateCreateJobInput(sanitizedInput);
-    if (error) {
-      logger.warn(`[${requestId}] Invalid input for job creation: ${error.details[0].message}`, {
-        userId: req.user?.id,
-        input: sanitizedInput,
-      });
-      throw new CustomError({
+
+    if (!req.body) {
+      return res.status(400).json({
         success: false,
-        message: ERROR_MESSAGES.INVALID_INPUT,
-         statusCode: HTTP_STATUS.BAD_REQUEST,
-          details: error.details
-         });
+        message: 'Request body is required'
+      });
+    }
+
+     const normalizedBody = normalizeArrayFields(req.body);
+      console.log('1. Raw body skills:', typeof req.body.skills, JSON.stringify(req.body.skills, null, 2));
+
+    // Sanitize and validate input
+    const sanitizedInput = sanitizeInput(normalizedBody);
+    console.log('2. After sanitizeInput skills:', typeof sanitizedInput.skills, JSON.stringify(sanitizedInput.skills, null, 2));
+    
+    const { error, value } = validateCreateJobInput(sanitizedInput);
+    console.log('3. After validation skills:', typeof value?.skills, JSON.stringify(value?.skills, null, 2));
+    if (error) {
+      return res.status(HTTP_STATUS.BAD_REQUEST).json(new CustomError({
+        success: false,
+        message: `rfrsdgvrdtgbtgb ${error.message} , ${error}`,
+        statusCode: HTTP_STATUS.BAD_REQUEST,
+        details: error
+      }));
     }
 
      // Check user authorization
@@ -66,19 +76,24 @@ export const createJobController = async (req, res) => {
       logger.warn(`[${requestId}] Unauthorized job creation attempt`, { userId: req.user?.id });
       return res.status(HTTP_STATUS.FORBIDDEN).json(new CustomError({
         success: false,
-        message: ERROR_MESSAGES.FORBIDDEN,
+        message: `hjugvykuhblhjvhm ${ERROR_MESSAGES.FORBIDDEN}`,
         statusCode: HTTP_STATUS.FORBIDDEN
       }));
     }
 
-    const createJob = await jobService.createJob({userId : req.user, requestId, sanitizedInput});
+    console.log('4. About to call jobService.createJob');
+console.log('4.1. req.user:', JSON.stringify(req.user, null, 2));
+console.log('4.2. requestId:', requestId);
+console.log('4.3. value (sanitizedInput):', typeof value);
 
+    const createJob = await jobService.createJob({userId : req.user, requestId, sanitizedInput : value});
 
+console.log('5. Service call completed successfully');
     // Log success
     logger.info(`[${requestId}] Job created successfully`, {
       jobId: createJob.jobId,
       companyId: createJob.companyId,
-      userId: createdBy,
+      userId: req.user?.id,
       duration: Date.now() - startTime,
     });
 

@@ -1,4 +1,42 @@
-import Joi from 'joi';
+import Joi from "joi";
+
+// Add this helper function
+export const normalizeArrayFields = (data) => {
+  const arrayFields = ["skills", "searchKeywords", "tags", "diversityTags"];
+
+  const nestedArrayFields = {
+    requirements: ["certifications", "mandatorySkills", "preferredSkills"],
+    benefits: ["others"],
+  };
+
+  // Normalize top-level array fields
+  arrayFields.forEach((field) => {
+    if (
+      data[field] &&
+      typeof data[field] === "object" &&
+      !Array.isArray(data[field])
+    ) {
+      data[field] = Object.values(data[field]);
+    }
+  });
+
+  // Normalize nested array fields
+  Object.keys(nestedArrayFields).forEach((parent) => {
+    if (data[parent]) {
+      nestedArrayFields[parent].forEach((field) => {
+        if (
+          data[parent][field] &&
+          typeof data[parent][field] === "object" &&
+          !Array.isArray(data[parent][field])
+        ) {
+          data[parent][field] = Object.values(data[parent][field]);
+        }
+      });
+    }
+  });
+
+  return data;
+};
 
 // Validation schema for creating a job
 export const validateCreateJobInput = (input) => {
@@ -9,18 +47,20 @@ export const validateCreateJobInput = (input) => {
       .required()
       .pattern(/^[a-zA-Z0-9\s\-\.,&()]+$/)
       .messages({
-        'string.pattern.base': 'Title contains invalid characters',
-        'string.max': 'Title must not exceed 200 characters',
-        'any.required': 'Title is required',
+        "string.pattern.base": "Title contains invalid characters",
+        "string.max": "Title must not exceed 200 characters",
+        "any.required": "Title is required",
       }),
 
     companyId: Joi.string()
       .required()
       .max(36)
-      .pattern(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i)
+      .pattern(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+      )
       .messages({
-        'string.pattern.base': 'Invalid company ID format',
-        'any.required': 'Company ID is required',
+        "string.pattern.base": "Invalid company ID format",
+        "any.required": "Company ID is required",
       }),
 
     description: Joi.string()
@@ -28,14 +68,14 @@ export const validateCreateJobInput = (input) => {
       .required()
       .custom((value, helpers) => {
         if (/<script\b[^<](?:(?!<\/script>)<[^<])*<\/script>/gi.test(value)) {
-          return helpers.error('string.unsafeContent');
+          return helpers.error("string.unsafeContent");
         }
         return value;
       })
       .messages({
-        'string.unsafeContent': 'Description contains unsafe content',
-        'string.max': 'Description must not exceed 5000 characters',
-        'any.required': 'Description is required',
+        "string.unsafeContent": "Description contains unsafe content",
+        "string.max": "Description must not exceed 5000 characters",
+        "any.required": "Description is required",
       }),
 
     skills: Joi.array()
@@ -48,21 +88,21 @@ export const validateCreateJobInput = (input) => {
             .required()
             .pattern(/^[a-zA-Z0-9\s\-\.+#]+$/)
             .messages({
-              'string.pattern.base': 'Skill name contains invalid characters',
-              'string.max': 'Skill name must not exceed 50 characters',
-              'any.required': 'Skill name is required',
+              "string.pattern.base": "Skill name contains invalid characters",
+              "string.max": "Skill name must not exceed 50 characters",
+              "any.required": "Skill name is required",
             }),
           weight: Joi.number().min(0).max(1).default(0.5),
           category: Joi.string()
-            .valid('technical', 'soft', 'domain', 'tool', 'framework')
-            .default('technical'),
+            .valid("technical", "soft", "domain", "tool", "framework")
+            .default("technical"),
         })
       )
       .min(1)
       .required()
       .messages({
-        'array.min': 'At least one skill is required',
-        'any.required': 'Skills are required',
+        "array.min": "At least one skill is required",
+        "any.required": "Skills are required",
       }),
 
     location: Joi.object({
@@ -71,98 +111,107 @@ export const validateCreateJobInput = (input) => {
         .max(100)
         .optional()
         .pattern(/^[a-zA-Z\s\-'\.]+$/)
-        .allow('')
+        .allow("")
         .messages({
-          'string.pattern.base': 'City name contains invalid characters',
+          "string.pattern.base": "City name contains invalid characters",
         }),
       state: Joi.string()
         .trim()
         .max(50)
         .optional()
         .pattern(/^[a-zA-Z\s\-'\.]+$/)
-        .allow('')
+        .allow("")
         .messages({
-          'string.pattern.base': 'State name contains invalid characters',
+          "string.pattern.base": "State name contains invalid characters",
         }),
       country: Joi.string()
         .trim()
         .max(50)
-        .default('India')
+        .default("India")
         .pattern(/^[a-zA-Z\s\-'\.]+$/)
         .messages({
-          'string.pattern.base': 'Country name contains invalid characters',
+          "string.pattern.base": "Country name contains invalid characters",
         }),
       isRemote: Joi.boolean().default(false),
       coordinates: Joi.object({
-        type: Joi.string().valid('Point').default('Point'),
+        type: Joi.string().valid("Point").default("Point"),
         coordinates: Joi.array()
           .items(Joi.number())
           .length(2)
           .custom((value, helpers) => {
             const [lon, lat] = value;
             if (lon < -180 || lon > 180 || lat < -90 || lat > 90) {
-              return helpers.error('array.coordinatesInvalid');
+              return helpers.error("array.coordinatesInvalid");
             }
             return value;
           })
           .optional()
           .messages({
-            'array.coordinatesInvalid': 'Invalid coordinates format',
+            "array.coordinatesInvalid": "Invalid coordinates format",
           }),
       }).optional(),
     }).optional(),
 
+    searchKeywords: Joi.array()
+      .items(Joi.string().max(50).lowercase())
+      .optional(),
+
+    tags: Joi.array().items(Joi.string().max(30).lowercase()).optional(),
+
+    createdBy: Joi.string()
+      .pattern(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+      )
+      .required(),
+
     jobType: Joi.string()
-      .valid('full-time', 'part-time', 'contract', 'freelance', 'internship')
+      .valid("full-time", "part-time", "contract", "freelance", "internship")
       .required()
       .messages({
-        'any.only': 'Invalid job type',
-        'any.required': 'Job type is required',
+        "any.only": "Invalid job type",
+        "any.required": "Job type is required",
       }),
 
     salary: Joi.object({
-      min: Joi.number()
-        .integer()
-        .min(0)
-        .max(100000000)
-        .optional()
-        .messages({
-          'number.base': 'Salary min must be a number',
-          'number.min': 'Salary min must be at least 0',
-          'number.max': 'Salary min must not exceed 100000000',
-        }),
-      max: Joi.number()
-        .integer()
-        .min(0)
-        .max(100000000)
-        .optional()
-        .messages({
-          'number.base': 'Salary max must be a number',
-          'number.min': 'Salary max must be at least 0',
-          'number.max': 'Salary max must not exceed 100000000',
-        }),
-      currency: Joi.string()
-        .valid('INR', 'USD', 'EUR', 'GBP')
-        .default('INR'),
+      min: Joi.number().integer().min(0).max(100000000).optional().messages({
+        "number.base": "Salary min must be a number",
+        "number.min": "Salary min must be at least 0",
+        "number.max": "Salary min must not exceed 100000000",
+      }),
+      max: Joi.number().integer().min(0).max(100000000).optional().messages({
+        "number.base": "Salary max must be a number",
+        "number.min": "Salary max must be at least 0",
+        "number.max": "Salary max must not exceed 100000000",
+      }),
+      currency: Joi.string().valid("INR", "USD", "EUR", "GBP").default("INR"),
       isNegotiable: Joi.boolean().default(true),
       frequency: Joi.string()
-        .valid('hourly', 'monthly', 'yearly')
-        .default('yearly'),
+        .valid("hourly", "monthly", "yearly")
+        .default("yearly"),
     }).optional(),
 
     experience: Joi.object({
       level: Joi.string()
-        .valid('entry', 'junior', 'mid', 'senior', 'lead', 'principal', 'executive')
+        .valid(
+          "entry",
+          "junior",
+          "mid",
+          "senior",
+          "lead",
+          "principal",
+          "executive"
+        )
         .required()
         .messages({
-          'any.only': 'Invalid experience level',
-          'any.required': 'Experience level is required',
+          "any.only": "Invalid experience level",
+          "any.required": "Experience level is required",
         }),
       minYears: Joi.number().min(0).max(50).default(0),
       maxYears: Joi.number().min(0).max(50).optional(),
-    }).required()
+    })
+      .required()
       .messages({
-        'any.required': 'Experience is required',
+        "any.required": "Experience is required",
       }),
 
     requirements: Joi.object({
@@ -171,7 +220,7 @@ export const validateCreateJobInput = (input) => {
         .optional()
         .pattern(/^[^<>]+$/)
         .messages({
-          'string.pattern.base': 'Education field contains unsafe characters',
+          "string.pattern.base": "Education field contains unsafe characters",
         }),
       certifications: Joi.array()
         .items(
@@ -179,7 +228,8 @@ export const validateCreateJobInput = (input) => {
             .max(100)
             .pattern(/^[a-zA-Z0-9\s\-\.,()]+$/)
             .messages({
-              'string.pattern.base': 'Certification name contains invalid characters',
+              "string.pattern.base":
+                "Certification name contains invalid characters",
             })
         )
         .optional(),
@@ -189,7 +239,8 @@ export const validateCreateJobInput = (input) => {
             .max(50)
             .pattern(/^[a-zA-Z0-9\s\-\.+#]+$/)
             .messages({
-              'string.pattern.base': 'Mandatory skill name contains invalid characters',
+              "string.pattern.base":
+                "Mandatory skill name contains invalid characters",
             })
         )
         .optional(),
@@ -199,7 +250,8 @@ export const validateCreateJobInput = (input) => {
             .max(50)
             .pattern(/^[a-zA-Z0-9\s\-\.+#]+$/)
             .messages({
-              'string.pattern.base': 'Preferred skill name contains invalid characters',
+              "string.pattern.base":
+                "Preferred skill name contains invalid characters",
             })
         )
         .optional(),
@@ -217,7 +269,8 @@ export const validateCreateJobInput = (input) => {
             .max(100)
             .pattern(/^[a-zA-Z0-9\s\-\.,()]+$/)
             .messages({
-              'string.pattern.base': 'Benefit description contains invalid characters',
+              "string.pattern.base":
+                "Benefit description contains invalid characters",
             })
         )
         .optional(),
@@ -228,23 +281,42 @@ export const validateCreateJobInput = (input) => {
       .optional()
       .pattern(/^[a-zA-Z0-9\s\-&]+$/)
       .messages({
-        'string.pattern.base': 'Department name contains invalid characters',
+        "string.pattern.base": "Department name contains invalid characters",
       }),
 
     industry: Joi.string()
-      .valid('technology', 'healthcare', 'finance', 'education', 'manufacturing', 'retail', 'consulting', 'other')
+      .valid(
+        "technology",
+        "healthcare",
+        "finance",
+        "education",
+        "manufacturing",
+        "retail",
+        "consulting",
+        "other"
+      )
       .optional(),
 
+    updatedBy: Joi.string()
+      .pattern(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+      )
+      .optional(),
+
+    version: Joi.number().integer().min(1).default(1),
+    
+    isDeleted: Joi.boolean().default(false),
+
     applicationMethod: Joi.string()
-      .valid('internal', 'external', 'email', 'linkedin')
-      .default('internal'),
+      .valid("internal", "external", "email", "linkedin")
+      .default("internal"),
 
     applicationUrl: Joi.string()
       .max(500)
       .optional()
       .pattern(/^https:\/\/[a-zA-Z0-9\-\.]+\.[a-zA-Z]{2,}(\/[^\s]*)?$/)
       .messages({
-        'string.pattern.base': 'Application URL must be a valid HTTPS URL',
+        "string.pattern.base": "Application URL must be a valid HTTPS URL",
       }),
 
     isFeatured: Joi.boolean().default(false),
@@ -252,21 +324,36 @@ export const validateCreateJobInput = (input) => {
 
     diversityTags: Joi.array()
       .items(
-        Joi.string().valid('women-friendly', 'lgbtq-friendly', 'disability-friendly', 'minority-friendly')
+        Joi.string().valid(
+          "women-friendly",
+          "lgbtq-friendly",
+          "disability-friendly",
+          "minority-friendly"
+        )
       )
       .optional(),
-  }).custom((value, helpers) => {
-    if (value.salary?.min && value.salary?.max && value.salary.min > value.salary.max) {
-      return helpers.error('object.salaryRangeInvalid');
-    }
-    if (value.experience?.minYears && value.experience?.maxYears && value.experience.minYears > value.experience.maxYears) {
-      return helpers.error('object.experienceRangeInvalid');
-    }
-    return value;
-  }).messages({
-    'object.salaryRangeInvalid': 'Invalid salary range',
-    'object.experienceRangeInvalid': 'Invalid experience range',
-  });
+  })
+    .custom((value, helpers) => {
+      if (
+        value.salary?.min &&
+        value.salary?.max &&
+        value.salary.min > value.salary.max
+      ) {
+        return helpers.error("object.salaryRangeInvalid");
+      }
+      if (
+        value.experience?.minYears &&
+        value.experience?.maxYears &&
+        value.experience.minYears > value.experience.maxYears
+      ) {
+        return helpers.error("object.experienceRangeInvalid");
+      }
+      return value;
+    })
+    .messages({
+      "object.salaryRangeInvalid": "Invalid salary range",
+      "object.experienceRangeInvalid": "Invalid experience range",
+    });
 
   return schema.validate(input, { abortEarly: false });
 };
@@ -280,8 +367,8 @@ export const validateUpdateJobInput = (input) => {
       .optional()
       .pattern(/^[a-zA-Z0-9\s\-\.,&()]+$/)
       .messages({
-        'string.pattern.base': 'Title contains invalid characters',
-        'string.max': 'Title must not exceed 200 characters',
+        "string.pattern.base": "Title contains invalid characters",
+        "string.max": "Title must not exceed 200 characters",
       }),
 
     description: Joi.string()
@@ -289,13 +376,13 @@ export const validateUpdateJobInput = (input) => {
       .optional()
       .custom((value, helpers) => {
         if (/<script\b[^<](?:(?!<\/script>)<[^<])*<\/script>/gi.test(value)) {
-          return helpers.error('string.unsafeContent');
+          return helpers.error("string.unsafeContent");
         }
         return value;
       })
       .messages({
-        'string.unsafeContent': 'Description contains unsafe content',
-        'string.max': 'Description must not exceed 5000 characters',
+        "string.unsafeContent": "Description contains unsafe content",
+        "string.max": "Description must not exceed 5000 characters",
       }),
 
     skills: Joi.array()
@@ -308,19 +395,19 @@ export const validateUpdateJobInput = (input) => {
             .required()
             .pattern(/^[a-zA-Z0-9\s\-\.+#]+$/)
             .messages({
-              'string.pattern.base': 'Skill name contains invalid characters',
-              'string.max': 'Skill name must not exceed 50 characters',
-              'any.required': 'Skill name is required',
+              "string.pattern.base": "Skill name contains invalid characters",
+              "string.max": "Skill name must not exceed 50 characters",
+              "any.required": "Skill name is required",
             }),
           weight: Joi.number().min(0).max(1).default(0.5),
           category: Joi.string()
-            .valid('technical', 'soft', 'domain', 'tool', 'framework')
-            .default('technical'),
+            .valid("technical", "soft", "domain", "tool", "framework")
+            .default("technical"),
         })
       )
       .optional()
       .messages({
-        'array.min': 'At least one skill is required if skills are provided',
+        "array.min": "At least one skill is required if skills are provided",
       }),
 
     location: Joi.object({
@@ -329,18 +416,18 @@ export const validateUpdateJobInput = (input) => {
         .max(100)
         .optional()
         .pattern(/^[a-zA-Z\s\-'\.]+$/)
-        .allow('')
+        .allow("")
         .messages({
-          'string.pattern.base': 'City name contains invalid characters',
+          "string.pattern.base": "City name contains invalid characters",
         }),
       state: Joi.string()
         .trim()
         .max(50)
         .optional()
         .pattern(/^[a-zA-Z\s\-'\.]+$/)
-        .allow('')
+        .allow("")
         .messages({
-          'string.pattern.base': 'State name contains invalid characters',
+          "string.pattern.base": "State name contains invalid characters",
         }),
       country: Joi.string()
         .trim()
@@ -348,81 +435,75 @@ export const validateUpdateJobInput = (input) => {
         .optional()
         .pattern(/^[a-zA-Z\s\-'\.]+$/)
         .messages({
-          'string.pattern.base': 'Country name contains invalid characters',
+          "string.pattern.base": "Country name contains invalid characters",
         }),
       isRemote: Joi.boolean().optional(),
       coordinates: Joi.object({
-        type: Joi.string().valid('Point').default('Point'),
+        type: Joi.string().valid("Point").default("Point"),
         coordinates: Joi.array()
           .items(Joi.number())
           .length(2)
           .custom((value, helpers) => {
             const [lon, lat] = value;
             if (lon < -180 || lon > 180 || lat < -90 || lat > 90) {
-              return helpers.error('array.coordinatesInvalid');
+              return helpers.error("array.coordinatesInvalid");
             }
             return value;
           })
           .optional()
           .messages({
-            'array.coordinatesInvalid': 'Invalid coordinates format',
+            "array.coordinatesInvalid": "Invalid coordinates format",
           }),
       }).optional(),
     }).optional(),
 
     jobType: Joi.string()
-      .valid('full-time', 'part-time', 'contract', 'freelance', 'internship')
+      .valid("full-time", "part-time", "contract", "freelance", "internship")
       .optional()
       .messages({
-        'any.only': 'Invalid job type',
+        "any.only": "Invalid job type",
       }),
 
     salary: Joi.object({
-      min: Joi.number()
-        .integer()
-        .min(0)
-        .max(100000000)
-        .optional()
-        .messages({
-          'number.base': 'Salary min must be a number',
-          'number.min': 'Salary min must be at least 0',
-          'number.max': 'Salary min must not exceed 100000000',
-        }),
-      max: Joi.number()
-        .integer()
-        .min(0)
-        .max(100000000)
-        .optional()
-        .messages({
-          'number.base': 'Salary max must be a number',
-          'number.min': 'Salary max must be at least 0',
-          'number.max': 'Salary max must not exceed 100000000',
-        }),
-      currency: Joi.string()
-        .valid('INR', 'USD', 'EUR', 'GBP')
-        .optional(),
+      min: Joi.number().integer().min(0).max(100000000).optional().messages({
+        "number.base": "Salary min must be a number",
+        "number.min": "Salary min must be at least 0",
+        "number.max": "Salary min must not exceed 100000000",
+      }),
+      max: Joi.number().integer().min(0).max(100000000).optional().messages({
+        "number.base": "Salary max must be a number",
+        "number.min": "Salary max must be at least 0",
+        "number.max": "Salary max must not exceed 100000000",
+      }),
+      currency: Joi.string().valid("INR", "USD", "EUR", "GBP").optional(),
       isNegotiable: Joi.boolean().optional(),
-      frequency: Joi.string()
-        .valid('hourly', 'monthly', 'yearly')
-        .optional(),
+      frequency: Joi.string().valid("hourly", "monthly", "yearly").optional(),
     }).optional(),
 
     experience: Joi.object({
       level: Joi.string()
-        .valid('entry', 'junior', 'mid', 'senior', 'lead', 'principal', 'executive')
+        .valid(
+          "entry",
+          "junior",
+          "mid",
+          "senior",
+          "lead",
+          "principal",
+          "executive"
+        )
         .optional()
         .messages({
-          'any.only': 'Invalid experience level',
+          "any.only": "Invalid experience level",
         }),
       minYears: Joi.number().min(0).max(50).optional(),
       maxYears: Joi.number().min(0).max(50).optional(),
     }).optional(),
 
     status: Joi.string()
-      .valid('draft', 'active', 'paused', 'expired', 'filled', 'cancelled')
+      .valid("draft", "active", "paused", "expired", "filled", "cancelled")
       .optional()
       .messages({
-        'any.only': 'Invalid status',
+        "any.only": "Invalid status",
       }),
 
     requirements: Joi.object({
@@ -431,7 +512,7 @@ export const validateUpdateJobInput = (input) => {
         .optional()
         .pattern(/^[^<>]+$/)
         .messages({
-          'string.pattern.base': 'Education field contains unsafe characters',
+          "string.pattern.base": "Education field contains unsafe characters",
         }),
       certifications: Joi.array()
         .items(
@@ -439,7 +520,8 @@ export const validateUpdateJobInput = (input) => {
             .max(100)
             .pattern(/^[a-zA-Z0-9\s\-\.,()]+$/)
             .messages({
-              'string.pattern.base': 'Certification name contains invalid characters',
+              "string.pattern.base":
+                "Certification name contains invalid characters",
             })
         )
         .optional(),
@@ -449,7 +531,8 @@ export const validateUpdateJobInput = (input) => {
             .max(50)
             .pattern(/^[a-zA-Z0-9\s\-\.+#]+$/)
             .messages({
-              'string.pattern.base': 'Mandatory skill name contains invalid characters',
+              "string.pattern.base":
+                "Mandatory skill name contains invalid characters",
             })
         )
         .optional(),
@@ -459,7 +542,8 @@ export const validateUpdateJobInput = (input) => {
             .max(50)
             .pattern(/^[a-zA-Z0-9\s\-\.+#]+$/)
             .messages({
-              'string.pattern.base': 'Preferred skill name contains invalid characters',
+              "string.pattern.base":
+                "Preferred skill name contains invalid characters",
             })
         )
         .optional(),
@@ -477,7 +561,8 @@ export const validateUpdateJobInput = (input) => {
             .max(100)
             .pattern(/^[a-zA-Z0-9\s\-\.,()]+$/)
             .messages({
-              'string.pattern.base': 'Benefit description contains invalid characters',
+              "string.pattern.base":
+                "Benefit description contains invalid characters",
             })
         )
         .optional(),
@@ -488,15 +573,24 @@ export const validateUpdateJobInput = (input) => {
       .optional()
       .pattern(/^[a-zA-Z0-9\s\-&]+$/)
       .messages({
-        'string.pattern.base': 'Department name contains invalid characters',
+        "string.pattern.base": "Department name contains invalid characters",
       }),
 
     industry: Joi.string()
-      .valid('technology', 'healthcare', 'finance', 'education', 'manufacturing', 'retail', 'consulting', 'other')
+      .valid(
+        "technology",
+        "healthcare",
+        "finance",
+        "education",
+        "manufacturing",
+        "retail",
+        "consulting",
+        "other"
+      )
       .optional(),
 
     applicationMethod: Joi.string()
-      .valid('internal', 'external', 'email', 'linkedin')
+      .valid("internal", "external", "email", "linkedin")
       .optional(),
 
     applicationUrl: Joi.string()
@@ -504,7 +598,7 @@ export const validateUpdateJobInput = (input) => {
       .optional()
       .pattern(/^https:\/\/[a-zA-Z0-9\-\.]+\.[a-zA-Z]{2,}(\/[^\s]*)?$/)
       .messages({
-        'string.pattern.base': 'Application URL must be a valid HTTPS URL',
+        "string.pattern.base": "Application URL must be a valid HTTPS URL",
       }),
 
     isFeatured: Joi.boolean().optional(),
@@ -512,22 +606,38 @@ export const validateUpdateJobInput = (input) => {
 
     diversityTags: Joi.array()
       .items(
-        Joi.string().valid('women-friendly', 'lgbtq-friendly', 'disability-friendly', 'minority-friendly')
+        Joi.string().valid(
+          "women-friendly",
+          "lgbtq-friendly",
+          "disability-friendly",
+          "minority-friendly"
+        )
       )
       .optional(),
-  }).custom((value, helpers) => {
-    if (value.salary?.min && value.salary?.max && value.salary.min > value.salary.max) {
-      return helpers.error('object.salaryRangeInvalid');
-    }
-    if (value.experience?.minYears && value.experience?.maxYears && value.experience.minYears > value.experience.maxYears) {
-      return helpers.error('object.experienceRangeInvalid');
-    }
-    return value;
-  }).min(1).messages({
-    'object.salaryRangeInvalid': 'Invalid salary range',
-    'object.experienceRangeInvalid': 'Invalid experience range',
-    'object.min': 'At least one field must be provided for update',
-  });
+  })
+    .custom((value, helpers) => {
+      if (
+        value.salary?.min &&
+        value.salary?.max &&
+        value.salary.min > value.salary.max
+      ) {
+        return helpers.error("object.salaryRangeInvalid");
+      }
+      if (
+        value.experience?.minYears &&
+        value.experience?.maxYears &&
+        value.experience.minYears > value.experience.maxYears
+      ) {
+        return helpers.error("object.experienceRangeInvalid");
+      }
+      return value;
+    })
+    .min(1)
+    .messages({
+      "object.salaryRangeInvalid": "Invalid salary range",
+      "object.experienceRangeInvalid": "Invalid experience range",
+      "object.min": "At least one field must be provided for update",
+    });
 
   return schema.validate(input, { abortEarly: false });
 };
@@ -536,13 +646,13 @@ export const validateUpdateJobInput = (input) => {
 export const validateListJobsFilters = (input) => {
   const schema = Joi.object({
     page: Joi.number().integer().min(1).default(1).messages({
-      'number.base': 'Page must be a number',
-      'number.min': 'Page must be at least 1',
+      "number.base": "Page must be a number",
+      "number.min": "Page must be at least 1",
     }),
     limit: Joi.number().integer().min(1).max(100).default(20).messages({
-      'number.base': 'Limit must be a number',
-      'number.min': 'Limit must be at least 1',
-      'number.max': 'Limit must not exceed 100',
+      "number.base": "Limit must be a number",
+      "number.min": "Limit must be at least 1",
+      "number.max": "Limit must not exceed 100",
     }),
     title: Joi.string()
       .trim()
@@ -550,21 +660,23 @@ export const validateListJobsFilters = (input) => {
       .optional()
       .pattern(/^[a-zA-Z0-9\s\-\.,&()]+$/)
       .messages({
-        'string.pattern.base': 'Title contains invalid characters',
-        'string.max': 'Title must not exceed 200 characters',
+        "string.pattern.base": "Title contains invalid characters",
+        "string.max": "Title must not exceed 200 characters",
       }),
     companyId: Joi.string()
       .optional()
       .max(36)
-      .pattern(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i)
+      .pattern(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+      )
       .messages({
-        'string.pattern.base': 'Invalid company ID format',
+        "string.pattern.base": "Invalid company ID format",
       }),
     jobType: Joi.string()
-      .valid('full-time', 'part-time', 'contract', 'freelance', 'internship')
+      .valid("full-time", "part-time", "contract", "freelance", "internship")
       .optional()
       .messages({
-        'any.only': 'Invalid job type',
+        "any.only": "Invalid job type",
       }),
     location: Joi.object({
       city: Joi.string()
@@ -572,18 +684,18 @@ export const validateListJobsFilters = (input) => {
         .max(100)
         .optional()
         .pattern(/^[a-zA-Z\s\-'\.]+$/)
-        .allow('')
+        .allow("")
         .messages({
-          'string.pattern.base': 'City name contains invalid characters',
+          "string.pattern.base": "City name contains invalid characters",
         }),
       state: Joi.string()
         .trim()
         .max(50)
         .optional()
         .pattern(/^[a-zA-Z\s\-'\.]+$/)
-        .allow('')
+        .allow("")
         .messages({
-          'string.pattern.base': 'State name contains invalid characters',
+          "string.pattern.base": "State name contains invalid characters",
         }),
       country: Joi.string()
         .trim()
@@ -591,16 +703,24 @@ export const validateListJobsFilters = (input) => {
         .optional()
         .pattern(/^[a-zA-Z\s\-'\.]+$/)
         .messages({
-          'string.pattern.base': 'Country name contains invalid characters',
+          "string.pattern.base": "Country name contains invalid characters",
         }),
       isRemote: Joi.boolean().optional(),
     }).optional(),
     experience: Joi.object({
       level: Joi.string()
-        .valid('entry', 'junior', 'mid', 'senior', 'lead', 'principal', 'executive')
+        .valid(
+          "entry",
+          "junior",
+          "mid",
+          "senior",
+          "lead",
+          "principal",
+          "executive"
+        )
         .optional()
         .messages({
-          'any.only': 'Invalid experience level',
+          "any.only": "Invalid experience level",
         }),
       minYears: Joi.number().min(0).max(50).optional(),
       maxYears: Joi.number().min(0).max(50).optional(),
@@ -613,29 +733,49 @@ export const validateListJobsFilters = (input) => {
           .max(50)
           .pattern(/^[a-zA-Z0-9\s\-\.+#]+$/)
           .messages({
-            'string.pattern.base': 'Skill name contains invalid characters',
-            'string.max': 'Skill name must not exceed 50 characters',
+            "string.pattern.base": "Skill name contains invalid characters",
+            "string.max": "Skill name must not exceed 50 characters",
           })
       )
       .optional(),
     industry: Joi.string()
-      .valid('technology', 'healthcare', 'finance', 'education', 'manufacturing', 'retail', 'consulting', 'other')
+      .valid(
+        "technology",
+        "healthcare",
+        "finance",
+        "education",
+        "manufacturing",
+        "retail",
+        "consulting",
+        "other"
+      )
       .optional(),
     isFeatured: Joi.boolean().optional(),
     isUrgent: Joi.boolean().optional(),
     diversityTags: Joi.array()
       .items(
-        Joi.string().valid('women-friendly', 'lgbtq-friendly', 'disability-friendly', 'minority-friendly')
+        Joi.string().valid(
+          "women-friendly",
+          "lgbtq-friendly",
+          "disability-friendly",
+          "minority-friendly"
+        )
       )
       .optional(),
-  }).custom((value, helpers) => {
-    if (value.experience?.minYears && value.experience?.maxYears && value.experience.minYears > value.experience.maxYears) {
-      return helpers.error('object.experienceRangeInvalid');
-    }
-    return value;
-  }).messages({
-    'object.experienceRangeInvalid': 'Invalid experience range',
-  });
+  })
+    .custom((value, helpers) => {
+      if (
+        value.experience?.minYears &&
+        value.experience?.maxYears &&
+        value.experience.minYears > value.experience.maxYears
+      ) {
+        return helpers.error("object.experienceRangeInvalid");
+      }
+      return value;
+    })
+    .messages({
+      "object.experienceRangeInvalid": "Invalid experience range",
+    });
 
   return schema.validate(input, { abortEarly: false });
 };
