@@ -1,6 +1,8 @@
 import express from "express";
 const app = express();
 import jobRouter from "./routers/job.router.js";
+import applicationRouter from "./routers/jobApplication.router.js";
+import analysisRouter from "./routers/jobAnalysis.router.js";
 import { authenticate } from "./auth.js";
 import {connectDB} from "./db/db.js";
 import {initKafka} from "./config/kafka.js";
@@ -17,5 +19,7 @@ app.get("/", (req, res) => {
 });
 
 app.use("/jobs", jobRouter);
+app.use("/jobs/applications", applicationRouter);
+app.use("/jobs/analysis", analysisRouter);
 
 export default app;

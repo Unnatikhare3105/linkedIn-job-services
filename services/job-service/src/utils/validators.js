@@ -304,7 +304,7 @@ export const validateCreateJobInput = (input) => {
       .optional(),
 
     version: Joi.number().integer().min(1).default(1),
-    
+
     isDeleted: Joi.boolean().default(false),
 
     applicationMethod: Joi.string()
@@ -779,3 +779,100 @@ export const validateListJobsFilters = (input) => {
 
   return schema.validate(input, { abortEarly: false });
 };
+
+// Validation schema for applying to a job (POST /jobs/:jobId/apply)
+export function validateApplyJobInput(input) {
+  const schema = Joi.object({
+    jobId: Joi.string()
+      .pattern(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i)
+      .required()
+      .messages({
+        'string.pattern.base': 'Invalid job ID format',
+        'any.required': 'Job ID is required',
+      }),
+    userId: Joi.string()
+      .pattern(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i)
+      .required()
+      .messages({
+        'string.pattern.base': 'Invalid user ID format',
+        'any.required': 'User ID is required',
+      }),
+    companyId: Joi.string()
+      .pattern(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i)
+      .required()
+      .messages({
+        'string.pattern.base': 'Invalid company ID format',
+        'any.required': 'Company ID is required',
+      }),
+    resumeVersion: Joi.string()
+      .pattern(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i)
+      .optional()
+      .allow('')
+      .messages({
+        'string.pattern.base': 'Invalid resume ID format',
+      }),
+    coverLetter: Joi.string()
+      .max(2000)
+      .optional()
+      .allow('')
+      .custom((value, helpers) => {
+        if (value && /<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi.test(value)) {
+          return helpers.error('string.unsafe');
+        }
+        return value;
+      })
+      .messages({
+        'string.max': 'Cover letter must not exceed 2000 characters',
+        'string.unsafe': 'Cover letter contains unsafe content',
+      }),
+    source: Joi.string()
+      .valid('direct', 'linkedin', 'referral', 'job-board')
+      .default('direct')
+      .messages({
+        'any.only': 'Invalid source value',
+      }),
+  });
+
+  return schema.validate(input, { abortEarly: false });
+}
+
+// Validation schema for updating application status (PATCH /applications/:applicationId/status)
+export function validateUpdateApplicationStatus(input) {
+  const schema = Joi.object({
+    status: Joi.string()
+      .valid('submitted', 'reviewed', 'shortlisted', 'interviewed', 'rejected', 'hired')
+      .required()
+      .messages({
+        'any.only': 'Invalid status value',
+        'any.required': 'Status is required',
+      }),
+  });
+
+  return schema.validate(input, { abortEarly: false });
+}
+
+// Validation for searchSimilarJobs input
+export function validateSearchSimilarJobsInput(input) {
+  const schema = Joi.object({
+    queryText: Joi.string().required().messages({
+      'any.required': 'Query text is required',
+      'string.empty': 'Query text cannot be empty'
+    }),
+    queryEmbedding: Joi.array()
+      .items(Joi.number())
+      .length(1536) // Adjust based on your embedding model
+      .required()
+      .messages({
+        'array.length': 'Query embedding must be 1536-dimensional',
+        'any.required': 'Query embedding is required'
+      }),
+    filters: Joi.object({
+      skills: Joi.array().items(Joi.string()).optional(),
+      experienceLevel: Joi.string().optional(),
+      location: Joi.string().optional(),
+      jobType: Joi.string().optional()
+    }).optional()
+  });
+
+  return schema.validate(input, { abortEarly: false });
+}

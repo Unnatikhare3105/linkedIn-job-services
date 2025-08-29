@@ -86,7 +86,7 @@ console.log('4.1. req.user:', JSON.stringify(req.user, null, 2));
 console.log('4.2. requestId:', requestId);
 console.log('4.3. value (sanitizedInput):', typeof value);
 
-    const createJob = await jobService.createJob({userId : req.user, requestId, sanitizedInput : value});
+    const createJob = await jobService.createJob({userId : req.user.id, requestId, sanitizedInput : value});
 
 console.log('5. Service call completed successfully');
     // Log success
@@ -129,16 +129,17 @@ export const getJobByIdController = async (req, res) => {
 
   try {
     const { jobId } = req.params;
-    if (!mongoose.isValidObjectId(jobId) || !jobId || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(jobId)) {
+    if (!jobId || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(jobId)) {
         return res.status(HTTP_STATUS.BAD_REQUEST).json(
           new CustomError({
             message: ERROR_MESSAGES.INVALID_INPUT,
-            statusCode: HTTP_STATUS.BAD_REQUEST
+            statusCode: HTTP_STATUS.BAD_REQUEST,
+            details: 'Invalid job ID format'
         })
       );
     }
 
- const job = await jobService.getJobById({ jobId, requestId });
+ const job = await jobService.getJobById({userId: req.user?.id, jobId, requestId });
 
     logger.info(`[${requestId}] Job retrieved successfully`, {
       jobId,
@@ -146,11 +147,10 @@ export const getJobByIdController = async (req, res) => {
       duration: Date.now() - startTime,
     });
 
-    return res.status(HTTP_STATUS.OK).json({
-      success: true,
+    return res.status(HTTP_STATUS.OK).json(new CustomSuccess({
       message: SUCCESS_MESSAGES.JOB_FOUND,
       data: job,
-    });
+    }));
   } catch (error) {
     logger.error(`[${requestId}] Failed to fetch job: ${error.message}`, {
       jobId: req.params.jobId,
@@ -161,7 +161,7 @@ export const getJobByIdController = async (req, res) => {
     return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(new CustomError({
       message: ERROR_MESSAGES.INTERNAL_SERVER_ERROR,
       statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR,
-      details: error.details
+      details: error
     }));
   }
 };
@@ -173,7 +173,7 @@ export const updateJobController = async (req, res) => {
 
   try {
     const { jobId } = req.params;
-    if(!mongoose.isValidObjectId(jobId) || !jobId || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(jobId)) {
+    if( !jobId || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(jobId)) {
         return res.status(HTTP_STATUS.BAD_REQUEST).json(
           new CustomError({
             message: ERROR_MESSAGES.INVALID_INPUT,
@@ -226,11 +226,11 @@ export const updateJobController = async (req, res) => {
       success: true,
       message: SUCCESS_MESSAGES.JOB_UPDATED,
       data: {
-        jobId: job.jobId,
-        title: job.title,
-        companyId: job.companyId,
-        status: job.status,
-        updatedAt: job.updatedAt,
+        jobId: updateJob.jobId,
+        title: updateJob.title,
+        companyId: updateJob.companyId,
+        status: updateJob.status,
+        updatedAt: updateJob.updatedAt,
       },
     });
   } catch (error) {
@@ -346,8 +346,8 @@ const jobList = await jobService.listJobs({ filters: sanitizedFilters, requestId
     return res.status(HTTP_STATUS.OK).json({
       success: true,
       message: SUCCESS_MESSAGES.JOBS_LISTED,
-      count: jobs.length,
-      data: jobs,
+      count: jobList.length,
+      data: jobList,
     });
   } catch (error) {
     logger.error(`[${requestId}] Failed to list jobs: ${error.message}`, {

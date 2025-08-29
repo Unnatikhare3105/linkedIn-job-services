@@ -48,7 +48,7 @@ export const createJob = async ({ userId, requestId, sanitizedInput }) => {
     // Generate job ID and prepare job data
     const jobId = uuidv4();
     console.log(`job idd uidd line 50 ${jobId}`)
-    const createdBy = sanitizeUserId(userId.id); // Now handles prefix
+    const createdBy = sanitizeUserId(userId); // Now handles prefix
     const jobData = {
       jobId,
       ...sanitizedInput,
@@ -79,41 +79,41 @@ export const createJob = async ({ userId, requestId, sanitizedInput }) => {
     }
     console.log("jobbb sdcawdbjwa" , job)
 
-    // // Emit job creation event to Kafka
-    // await JobEventService.emit('job:created', {
-    //   jobId: job.jobId,
-    //   companyId: job.companyId,
-    //   title: job.title,
-    //   skills: job.skills.map((s) => s.name),
-    //   location: job.location,
-    //   requestId,
-    // });
+    // Emit job creation event to Kafka
+    await JobEventService.emit('job:created', {
+      jobId: job.jobId,
+      companyId: job.companyId,
+      title: job.title,
+      skills: job.skills.map((s) => s.name),
+      location: job.location,
+      requestId,
+    });
 
-    // // Generate and store job embedding in vector DB
-    // await JobVectorService.generateJobEmbedding(createJob);
+    // Generate and store job embedding in vector DB
+    await JobVectorService.generateJobEmbedding(job);
 
-    // // Initialize stats in Redis
-    // await StatsService.incrementJobStats(createJob.jobId, 'views', 0);
+    // Initialize stats in Redis
+    await StatsService.incrementJobStats(job.jobId, 'views', 0);
     console.log("Service: Returning job");
     return job;
   } catch (error) {
     console.error(`Service: Error creating job [${requestId}]:`, error.message);
     console.error("Service: Stack trace:", error.stack);
     logger.error(`[${requestId}] Failed to create job: ${error.message}`, {
-      userId: userId?.id,
+      userId: userId,
       error: error.stack,
     });
     throw error;
   }
 };
 
-export const getJobById = async ({ jobId, requestId }) => {
+export const getJobById = async ({userId, jobId, requestId }) => {
   try {
     const job = await Job.findOne({ jobId, isDeleted: false }).lean();
     if (!job) {
       logger.warn(`[${requestId}] Job not found`, {
         jobId,
-        userId: req.user?.id,
+        userId,
       });
       return res.status(HTTP_STATUS.NOT_FOUND).json(
         new CustomError({
@@ -129,7 +129,7 @@ export const getJobById = async ({ jobId, requestId }) => {
     // Emit job viewed event
     await JobEventService.emit("analytics:job_viewed", {
       jobId,
-      userId: req.user?.id || "anonymous",
+      userId,
       timestamp: new Date().toISOString(),
       requestId,
     });
@@ -138,7 +138,7 @@ export const getJobById = async ({ jobId, requestId }) => {
   } catch (error) {
     logger.error(`[${requestId}] Failed to fetch job: ${error.message}`, {
       jobId,
-      userId: req.user?.id,
+      userId,
       error: error.stack,
       duration: Date.now() - startTime,
     });
@@ -173,7 +173,7 @@ export const updateJob = async ({ jobId, userId, requestId, updates }) => {
     if (!job) {
       logger.warn(`[${requestId}] Job not found for update`, {
         jobId,
-        userId: req.user?.id,
+        userId,
       });
       throw new CustomError(
         ERROR_MESSAGES.JOB_NOT_FOUND,

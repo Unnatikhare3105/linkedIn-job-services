@@ -6,6 +6,7 @@ import redisClient from '../config/redis.js';
 import pkg from '@pinecone-database/pinecone';
 import weaviate from 'weaviate-ts-client';
 import { sanitizeUserId} from '../utils/security.js';
+import logger  from '../utils/logger.js';
 import dotenv from "dotenv";
 dotenv.config();
 
@@ -402,8 +403,8 @@ class StatsService {
     try {
       // Atomic increment in Redis
       const redisKey = `job:stats:${jobId}:${statType}`;
-      await redisClient.incrby(redisKey, statType, count);
-      logger.info(`Incremented ${statType} for job ${jobId} by ${count}`);
+      await redisClient.incrBy(redisKey, count); // Removed statType argument
+      logger.info(`Incremented ${statType} for job ${jobId} by ${count}`); // Use logger
 
       // Set expiry for cleanup (7 days)
       await redisClient.expire(redisKey, 7 * 24 * 60 * 60);
@@ -420,16 +421,16 @@ class StatsService {
   
   static async scheduleBatchFlush(jobId) {
     // Add to batch queue (Redis Set)
-    await redisClient.sadd('stats:flush:queue', jobId);
+    await redisClient.sAdd('stats:flush:queue', jobId); // Changed to sAdd
     
     // Schedule flush job (every 5 minutes)
-    await redisClient.setex(`stats:flush:scheduled:${jobId}`, 300, '1');
+    await redisClient.setEx(`stats:flush:scheduled:${jobId}`, 300, '1'); // Changed to setEx
   }
   
   static async batchFlushStats() {
     try {
       // Get all jobs pending stats flush
-      const jobIds = await redisClient.smembers('stats:flush:queue');
+      const jobIds = await redisClient.sMembers('stats:flush:queue'); // Changed to sMembers
       
       for (const jobId of jobIds) {
         const stats = {};
@@ -453,7 +454,7 @@ class StatsService {
         }
         
         // Remove from queue
-        await redisClient.srem('stats:flush:queue', jobId);
+        await redisClient.sRem('stats:flush:queue', jobId); // Changed to sRem
       }
       
     } catch (error) {
@@ -490,14 +491,14 @@ class JobEventService {
     
     try {
       // Secondary: Store in Redis for real-time features
-      await redisClient.lpush(`events:${data.jobId}`, JSON.stringify({
+      await redisClient.lPush(`events:${data.jobId}`, JSON.stringify({  // Changed to lPush
         eventType,
         data,
         timestamp: new Date().toISOString()
       }));
       
       // Keep only last 100 events per job
-      await redisClient.ltrim(`events:${data.jobId}`, 0, 99);
+      await redisClient.lTrim(`events:${data.jobId}`, 0, 99);  // Changed to lTrim
       redisSuccess = true;
       
     } catch (redisError) {
@@ -520,7 +521,6 @@ class JobEventService {
         status: 'pending'
       });
     } catch (error) {
-      // Last resort: file logging
       console.error('CRITICAL: All event systems failed:', { eventType, data, error });
     }
   }
