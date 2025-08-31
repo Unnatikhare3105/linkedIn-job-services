@@ -876,3 +876,68 @@ export function validateSearchSimilarJobsInput(input) {
 
   return schema.validate(input, { abortEarly: false });
 }
+
+// Validation schema for search queries
+export const validateSearchInput = (input) => {
+  const schema = Joi.object({
+    query: Joi.string().min(1).max(100).required().messages({
+      'string.empty': 'Search query cannot be empty',
+      'string.min': 'Search query must be at least 1 character',
+      'string.max': 'Search query cannot exceed 100 characters',
+      'any.required': 'Search query is required',
+    }),
+    page: Joi.number().integer().min(1).default(1).messages({
+      'number.base': 'Page must be a number',
+      'number.min': 'Page must be at least 1',
+    }),
+    limit: Joi.number().integer().min(1).max(100).default(20).messages({
+      'number.base': 'Limit must be a number',
+      'number.min': 'Limit must be at least 1',
+      'number.max': 'Limit cannot exceed 100',
+    }),
+  });
+  return schema.validate(input, { abortEarly: false });
+};
+
+// Validation schema for saving searches
+export const validateSaveSearchInput = (input) => {
+  const schema = Joi.object({
+    type: Joi.string().valid('location', 'company', 'keyword', 'title').required(),
+    query: Joi.string().min(1).required(),
+  });
+  return schema.validate(input);
+};
+
+// Validation schema for skills search
+export const validateSkillsSearchInput = (input) => {
+  const schema = Joi.object({
+    skills: Joi.array().items(Joi.string().min(1).max(50)).min(1).required().messages({
+      'array.min': 'At least one skill is required',
+      'string.empty': 'Skill cannot be empty',
+      'string.max': 'Skill cannot exceed 50 characters',
+      'any.required': 'Skills are required',
+    }),
+    page: Joi.number().integer().min(1).default(1),
+    limit: Joi.number().integer().min(1).max(100).default(20),
+  });
+  return schema.validate(input, { abortEarly: false });
+};
+
+// Validation schema for sort queries
+export const validateSortInput = (input) => {
+  const schema = Joi.object({
+    page: Joi.number().integer().min(1).default(1).messages({
+      'number.base': 'Page must be a number',
+      'number.min': 'Page must be at least 1',
+    }),
+    limit: Joi.number().integer().min(1).max(100).default(20).messages({
+      'number.base': 'Limit must be a number',
+      'number.min': 'Limit must be at least 1',
+      'number.max': 'Limit cannot exceed 100',
+    }),
+    query: Joi.string().optional().allow('').max(100).messages({
+      'string.max': 'Search query cannot exceed 100 characters',
+    }),
+  });
+  return schema.validate(input, { abortEarly: false });
+};

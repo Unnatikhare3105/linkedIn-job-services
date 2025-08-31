@@ -5,7 +5,9 @@ import CustomSuccess from '../utils/CustomSuccess.js';
 import JobApplication from '../model/jobApplication.model.js';
 import { StatsService, JobEventHandler } from '../model/job.model.js';
 import redisClient from '../config/redis.js';
-import { sanitizeInput, validateApplyJobInput, validateUpdateApplicationStatus } from '../utils/validators.js';
+import { sanitizeInput } from '../utils/security.js';
+import { validateApplyJobInput, validateUpdateApplicationStatus } from '../utils/validators.js';
+// import * as applicationService from '../services/application.services.js';
 
 const HTTP_STATUS = {
   OK: 200,
@@ -76,10 +78,11 @@ export const applyToJob = async (req, res) => {
       }));
     }
 
+    const ipAddress = req.ip && /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$|^(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$/.test(req.ip) ? req.ip : null;
     const application = new JobApplication({
       ...value,
       metadata: {
-        ipAddress: req.ip,
+        ipAddress,
         userAgent: req.headers['user-agent']
       }
     });

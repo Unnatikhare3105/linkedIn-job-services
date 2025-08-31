@@ -12,10 +12,11 @@ import { v4 as uuidv4 } from 'uuid';
 import logger from '../utils/logger.js';
 import CustomError from '../utils/CustomError.js';
 import CustomSuccess from '../utils/CustomSuccess.js';
-import JobAnalytics from '../models/JobAnalytics.js';
+import JobAnalytics from '../model/jobAnalysis.model.js';
 import {JobEventHandler, JobVectorService } from '../model/job.model.js';
 import redisClient from '../config/redis.js';
-import { sanitizeInput, validateSearchSimilarJobsInput } from '../utils/validators.js'; // Assume validator for search
+import { sanitizeInput } from "../utils/security.js";
+import { validateSearchSimilarJobsInput } from '../utils/validators.js'; // Assume validator for search
 
 const HTTP_STATUS = {
     OK: 200,
@@ -250,57 +251,57 @@ export const getJobAnalytics = async (req, res) => {
 };
 
 // POST /jobs/search/similar - Search for similar jobs using ML vector search
-export const searchSimilarJobs = async (req, res) => {
-  const requestId = uuidv4();
-  const startTime = Date.now();
-  const userId = req.user?.id;
+// export const searchSimilarJobs = async (req, res) => {
+//   const requestId = uuidv4();
+//   const startTime = Date.now();
+//   const userId = req.user?.id;
 
-  try {
-    if (!req.body) {
-      return res.status(HTTP_STATUS.BAD_REQUEST).json(new CustomError({
-        success: false,
-        message: 'Request body is required',
-        statusCode: HTTP_STATUS.BAD_REQUEST
-      }));
-    }
+//   try {
+//     if (!req.body) {
+//       return res.status(HTTP_STATUS.BAD_REQUEST).json(new CustomError({
+//         success: false,
+//         message: 'Request body is required',
+//         statusCode: HTTP_STATUS.BAD_REQUEST
+//       }));
+//     }
 
-    // Sanitize and validate input
-    const sanitizedInput = sanitizeInput(req.body);
-    const { error, value } = validateSearchSimilarJobsInput(sanitizedInput);
-    if (error) {
-      return res.status(HTTP_STATUS.BAD_REQUEST).json(new CustomError({
-        success: false,
-        message: `Validation error: ${error.message}`,
-        statusCode: HTTP_STATUS.BAD_REQUEST,
-        details: error
-      }));
-    }
+//     // Sanitize and validate input
+//     const sanitizedInput = sanitizeInput(req.body);
+//     const { error, value } = validateSearchSimilarJobsInput(sanitizedInput);
+//     if (error) {
+//       return res.status(HTTP_STATUS.BAD_REQUEST).json(new CustomError({
+//         success: false,
+//         message: `Validation error: ${error.message}`,
+//         statusCode: HTTP_STATUS.BAD_REQUEST,
+//         details: error
+//       }));
+//     }
 
-    // Perform vector search
-    const results = await JobVectorService.searchSimilarJobs(value.queryEmbedding, value.filters);
+//     // Perform vector search
+//     const results = await JobVectorService.searchSimilarJobs(value.queryEmbedding, value.filters);
 
-    logger.info(`[${requestId}] Similar jobs search completed`, {
-      userId,
-      query: value.queryText,
-      resultCount: results.length,
-      duration: Date.now() - startTime
-    });
+//     logger.info(`[${requestId}] Similar jobs search completed`, {
+//       userId,
+//       query: value.queryText,
+//       resultCount: results.length,
+//       duration: Date.now() - startTime
+//     });
 
-    return res.status(HTTP_STATUS.OK).json(new CustomSuccess({
-      message: SUCCESS_MESSAGES.SIMILAR_JOBS_RETRIEVED,
-      data: { jobs: results }
-    }));
-  } catch (error) {
-    logger.error(`[${requestId}] Failed to search similar jobs: ${error.message}`, {
-      userId,
-      error: error.stack,
-      input: req.body,
-      duration: Date.now() - startTime
-    });
-    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(new CustomError({
-      success: false,
-      message: ERROR_MESSAGES.INTERNAL_SERVER_ERROR,
-      error: error.message
-    }));
-  }
-};
+//     return res.status(HTTP_STATUS.OK).json(new CustomSuccess({
+//       message: SUCCESS_MESSAGES.SIMILAR_JOBS_RETRIEVED,
+//       data: { jobs: results }
+//     }));
+//   } catch (error) {
+//     logger.error(`[${requestId}] Failed to search similar jobs: ${error.message}`, {
+//       userId,
+//       error: error.stack,
+//       input: req.body,
+//       duration: Date.now() - startTime
+//     });
+//     return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(new CustomError({
+//       success: false,
+//       message: ERROR_MESSAGES.INTERNAL_SERVER_ERROR,
+//       error: error.message
+//     }));
+//   }
+// };

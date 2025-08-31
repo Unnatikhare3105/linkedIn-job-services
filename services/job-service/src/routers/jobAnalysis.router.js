@@ -12,6 +12,6 @@ router.post("/:jobId/save", authenticate, controllers.incrementSave);
 
 router.post("/:jobId/analytics", authenticate, controllers.getJobAnalytics);
 
-router.post("/jobs/search/similar", authenticate, controllers.searchSimilarJobs);
+// router.post("/search/similar", authenticate, controllers.searchSimilarJobs);
 
 export default router;

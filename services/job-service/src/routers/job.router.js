@@ -33,4 +33,10 @@ router.get(
     jobController.featuredJobsController
 );
 
+router.post(
+    "/saveJob",
+    authenticate,
+    jobController.saveJobsController
+)
+
 export default router;

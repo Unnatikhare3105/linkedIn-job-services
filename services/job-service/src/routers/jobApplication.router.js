@@ -15,12 +15,12 @@ router.get(
     Controllers.getApplicationsByJob
 );
 router.patch(
-    "/applications/:applicationId/status",
+    "/:applicationId/status",
     authenticate,
     Controllers.updateApplicationStatus
 );
 router.delete(
-    "/applications/:applicationId",
+    "/:applicationId",
     authenticate,
     Controllers.deleteApplication
 );

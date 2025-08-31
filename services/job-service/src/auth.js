@@ -5,6 +5,7 @@
        canCreateJobs: true,
        canUpdateJobs: true,
        canDeleteJobs: true,
+       canManageJobs: true
      };
      next();
    };

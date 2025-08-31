@@ -2,7 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import Job,{ JobEventService, JobVectorService, StatsService } from '../model/job.model.js';
 import { sanitizeInput, sanitizeUserId } from '../utils/security.js';
 import * as jobService from '../services/job.services.js';
-import { normalizeArrayFields, validateCreateJobInput, validateUpdateJobInput, validateListJobsFilters } from '../utils/validators.js';
+import { normalizeArrayFields, validateSaveSearchInput, validateCreateJobInput, validateUpdateJobInput, validateListJobsFilters } from '../utils/validators.js';
 import logger from '../utils/logger.js';
 import CustomError from '../utils/CustomError.js';
 import CustomSuccess from '../utils/CustomSuccess.js';
@@ -402,4 +402,99 @@ export const featuredJobsController = async (req, res) => {
     });
     next(error);
   }
+};
+
+export const saveJobsController = async (req, res) => {
+  const requestId = uuidv4();
+    const startTime = Date.now();
+    const userId = req.user?.id;
+    const { type, query } = req.body;
+  
+    if (!userId) {
+      return res.status(HTTP_STATUS.UNAUTHORIZED).json(
+        new CustomError({
+          success: false,
+          message: 'Authentication required',
+          statusCode: HTTP_STATUS.UNAUTHORIZED,
+        })
+      );
+    }
+  
+    try {
+      // Ensure Redis client is connected
+      if (!redisClient.isOpen) {
+        await redisClient.connect();
+        logger.info(`[${requestId}] Redis client connected`);
+      }
+  
+      const sanitizedInput = sanitizeInput({ type, query });
+      const { error, value } = validateSaveSearchInput(sanitizedInput);
+      if (error) {
+        return res.status(HTTP_STATUS.BAD_REQUEST).json(
+          new CustomError({
+            success: false,
+            message: `Validation error: ${error.message}`,
+            statusCode: HTTP_STATUS.BAD_REQUEST,
+            details: error,
+          })
+        );
+      }
+  
+      // Save search to Redis list
+      await redisClient.lPush(
+        `saved:searches:${userId}`,
+        JSON.stringify({
+          type: value.type,
+          query: value.query,
+          timestamp: new Date().toISOString(),
+        })
+      );
+      // Trim list to keep only the last 10 searches
+      await redisClient.lTrim(`saved:searches:${userId}`, 0, 9);
+  
+      // Increment trending searches
+      await redisClient.zIncrBy('trending:searches', 1, value.query);
+  
+      // Emit Kafka event
+      JobEventService.emit('analytics:save_search', {
+        userId,
+        type: value.type,
+        query: value.query,
+        metadata: { ip: req.ip, userAgent: req.headers['user-agent'] },
+      }).catch((err) =>
+        logger.error(`[${requestId}] Async save search event failed`, { err })
+      );
+  
+      logger.info(`[${requestId}] Search saved`, {
+        userId,
+        type: value.type,
+        query: value.query,
+        duration: Date.now() - startTime,
+      });
+  
+      return res.status(HTTP_STATUS.OK).json(
+        new CustomSuccess({
+          message: 'Search saved successfully',
+          data: { type: value.type, query: value.query },
+        })
+      );
+    } catch (error) {
+      logger.error(
+        `[${requestId}] Failed to save search: ${error.message}`,
+        {
+          userId,
+          type,
+          query,
+          error: error.stack,
+          duration: Date.now() - startTime,
+        }
+      );
+      return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(
+        new CustomError({
+          success: false,
+          message: ERROR_MESSAGES.INTERNAL_SERVER_ERROR,
+          error: error.message,
+        })
+      );
+    }
 };
