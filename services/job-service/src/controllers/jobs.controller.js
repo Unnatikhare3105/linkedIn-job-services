@@ -39,7 +39,7 @@ const SUCCESS_MESSAGES = {
   FEATURED_JOBS: 'Featured jobs retrieved successfully',
 };
 
-//Create a new job (POST /jobs)
+// Controller: Handles creation of a new job (POST /jobs)
 export const createJobController = async (req, res) => {
   const requestId = uuidv4();
   const startTime = Date.now();
@@ -122,7 +122,7 @@ console.log('5. Service call completed successfully');
   }
 };
 
-//Get single job by ID (GET /jobs/:jobId)
+// Controller: Retrieves a single job by ID (GET /jobs/:jobId)
 export const getJobByIdController = async (req, res) => {
   const requestId = uuidv4();
   const startTime = Date.now();
@@ -166,7 +166,7 @@ export const getJobByIdController = async (req, res) => {
   }
 };
 
-//Update job by ID (PUT /jobs/:jobId)
+// Controller: Updates a job by ID (PUT /jobs/:jobId)
 export const updateJobController = async (req, res) => {
   const requestId = uuidv4();
   const startTime = Date.now();
@@ -249,7 +249,7 @@ export const updateJobController = async (req, res) => {
   }
 };
 
-//Soft delete job (DELETE /jobs/:jobId)
+// Controller: Soft deletes a job (DELETE /jobs/:jobId)
 export const deleteJobController = async (req, res) => {
   const requestId = uuidv4();
   const startTime = Date.now();
@@ -314,7 +314,7 @@ export const deleteJobController = async (req, res) => {
   }
 };
 
-  //List/filter/search jobs (GET /jobs)
+// Controller: Lists, filters, or searches jobs (GET /jobs)
 export const listJobsController = async (req, res) => {
   const requestId = uuidv4();
   const startTime = Date.now();
@@ -364,9 +364,7 @@ const jobList = await jobService.listJobs({ filters: sanitizedFilters, requestId
   }
 };
 
-/**
- * Get featured jobs (GET /jobs/featured)
- */
+// Controller: Gets featured jobs (GET /jobs/featured)
 export const featuredJobsController = async (req, res) => {
   const requestId = uuidv4();
   const startTime = Date.now();
@@ -404,6 +402,7 @@ export const featuredJobsController = async (req, res) => {
   }
 };
 
+// Controller: Saves a job search for a user (POST /jobs/save-search)
 export const saveJobsController = async (req, res) => {
   const requestId = uuidv4();
     const startTime = Date.now();

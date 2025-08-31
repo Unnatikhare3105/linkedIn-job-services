@@ -38,6 +38,7 @@
 // };
 
 // // GET /jobs/sort/relevance - Sort by relevance (text search score)
+// Controller: Sorts jobs by relevance
 // export const sortByRelevance = async (req, res) => {
 //   const requestId = uuidv4();
 //   const startTime = Date.now();
@@ -132,6 +133,7 @@
 // };
 
 // // GET /jobs/sort/date-posted - Sort by date posted (newest first)
+// Controller: Sorts jobs by date posted
 // export const sortByDatePosted = async (req, res) => {
 //   const requestId = uuidv4();
 //   const startTime = Date.now();
@@ -223,6 +225,7 @@
 // };
 
 // // GET /jobs/sort/salary-high-to-low - Sort by salary descending
+// Controller: Sorts jobs by salary (high to low)
 // export const sortBySalaryHighToLow = async (req, res) => {
 //   const requestId = uuidv4();
 //   const startTime = Date.now();
@@ -316,6 +319,7 @@
 // };
 
 // // GET /jobs/sort/salary-low-to-high - Sort by salary ascending
+// Controller: Sorts jobs by salary (low to high)
 // export const sortBySalaryLowToHigh = async (req, res) => {
 //   const requestId = uuidv4();
 //   const startTime = Date.now();
@@ -409,6 +413,7 @@
 // };
 
 // // GET /jobs/sort/company-rating - Sort by company rating (highest first)
+// Controller: Sorts jobs by company rating
 // export const sortByCompanyRating = async (req, res) => {
 //   const requestId = uuidv4();
 //   const startTime = Date.now();

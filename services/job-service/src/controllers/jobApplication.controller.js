@@ -36,6 +36,7 @@ const SUCCESS_MESSAGES = {
   JOB_CREATED: 'Job created successfully',
 };
 
+// Controller: Applies to a job (POST /jobs/:jobId/apply)
 export const applyToJob = async (req, res) => {
   const requestId = uuidv4();
   const startTime = Date.now();
@@ -133,6 +134,7 @@ export const applyToJob = async (req, res) => {
   }
 };
 
+// Controller: Retrieves applications for a job (GET /jobs/:jobId/applications)
 export const getApplicationsByJob = async (req, res) => {
   const requestId = uuidv4();
   const startTime = Date.now();
@@ -209,6 +211,7 @@ export const getApplicationsByJob = async (req, res) => {
   }
 };
 
+// Controller: Updates application status (PUT /jobs/:jobId/applications/:applicationId)
 export const updateApplicationStatus = async (req, res) => {
   const requestId = uuidv4();
   const startTime = Date.now();
@@ -313,6 +316,7 @@ export const updateApplicationStatus = async (req, res) => {
   }
 };
 
+// Controller: Deletes a job application (DELETE /jobs/:jobId/applications/:applicationId)
 export const deleteApplication = async (req, res) => {
   const requestId = uuidv4();
   const startTime = Date.now();

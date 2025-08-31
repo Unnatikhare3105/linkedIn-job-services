@@ -35,6 +35,7 @@ const ERROR_MESSAGES = {
   FEATURED_JOBS_FAILED: "Failed to fetch featured jobs",
 };
 
+// Service: Creates a new job in the database
 export const createJob = async ({ userId, requestId, sanitizedInput }) => {
   try {
     console.log("Service: Starting job creation");
@@ -107,6 +108,7 @@ export const createJob = async ({ userId, requestId, sanitizedInput }) => {
   }
 };
 
+// Service: Retrieves a job by its ID
 export const getJobById = async ({userId, jobId, requestId }) => {
   try {
     const job = await Job.findOne({ jobId, isDeleted: false }).lean();
@@ -149,6 +151,7 @@ export const getJobById = async ({userId, jobId, requestId }) => {
   }
 };
 
+// Service: Updates a job by its ID
 export const updateJob = async ({ jobId, userId, requestId, updates }) => {
   try {
     if (
@@ -210,6 +213,7 @@ export const updateJob = async ({ jobId, userId, requestId, updates }) => {
   }
 };
 
+// Service: Lists jobs based on filters
 export const listJobs = async ({ filters, requestId }) => {
   const { page = 1, limit = 20, ...queryFilters } = filters;
   const query = { isDeleted: false };
@@ -269,6 +273,7 @@ export const listJobs = async ({ filters, requestId }) => {
   return jobs;
 };
 
+// Service: Retrieves featured jobs
 export const getFeaturedJobs = async ({ requestId }) => {
   try {
     const jobs = await Job.find({ isFeatured: true, isDeleted: false })

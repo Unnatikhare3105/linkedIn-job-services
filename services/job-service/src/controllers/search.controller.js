@@ -52,6 +52,7 @@ export const HTTP_STATUS = {
 };
 
 // GET /jobs/search/title - Search jobs by title
+// Controller: Searches jobs by title
 export const searchJobsByTitle = async (req, res) => {
   const requestId = uuidv4();
   const startTime = Date.now();
@@ -163,6 +164,7 @@ export const searchJobsByTitle = async (req, res) => {
 };
 
 // GET /jobs/search/company - Search jobs by company name
+// Controller: Searches jobs by company
 export const searchJobsByCompany = async (req, res) => {
   const requestId = uuidv4();
   const startTime = Date.now();
@@ -278,6 +280,7 @@ export const searchJobsByCompany = async (req, res) => {
 };
 
 // GET /jobs/search/skills - Search jobs by skills
+// Controller: Searches jobs by skills
 export const searchJobsBySkills = async (req, res) => {
   const requestId = uuidv4();
   const startTime = Date.now();
@@ -395,6 +398,7 @@ export const searchJobsBySkills = async (req, res) => {
 };
 
 // GET /jobs/search/keyword - General keyword search
+// Controller: Searches jobs by keyword
 export const searchJobsByKeyword = async (req, res) => {
   const requestId = uuidv4();
   const startTime = Date.now();
@@ -503,6 +507,7 @@ export const searchJobsByKeyword = async (req, res) => {
 };
 
 // GET /jobs/autocomplete - Get autocomplete suggestions
+// Controller: Gets autocomplete suggestions for job search
 export const getAutoCompleteSuggestions = async (req, res) => {
   const requestId = uuidv4();
   const startTime = Date.now();
@@ -672,6 +677,7 @@ export const getAutoCompleteSuggestions = async (req, res) => {
 };
 
 // GET /jobs/recent-searches - Fetch user's recent searches
+// Controller: Gets recent job searches for a user
 export const getRecentSearches = async (req, res) => {
   const requestId = uuidv4();
   const startTime = Date.now();
@@ -727,6 +733,7 @@ export const getRecentSearches = async (req, res) => {
 };
 
 //GET /jobs/search/location
+// Controller: Searches jobs by location
 export const searchJobsByLocation = async (req, res) => {
   const requestId = uuidv4();
   const startTime = Date.now();
@@ -818,6 +825,7 @@ export const searchJobsByLocation = async (req, res) => {
 };
 
 // GET /jobs/search/suggestions - Get search suggestions based on partial query
+// Controller: Gets search suggestions for jobs
 export const getSearchSuggestions = async (req, res) => {
   const requestId = uuidv4();
   const startTime = Date.now();
@@ -897,6 +905,7 @@ export const getSearchSuggestions = async (req, res) => {
 };
 
 // GET /jobs/search/any - Search jobs across any field
+// Controller: Searches jobs by any field
 export const searchJobsAnyField = async (req, res) => {
   const requestId = uuidv4();
   const startTime = Date.now();
@@ -1003,6 +1012,7 @@ export const searchJobsAnyField = async (req, res) => {
 };
 
 // GET /jobs/search/trending - Get trending searches
+// Controller: Gets trending job searches
 export const getTrendingSearches = async (req, res) => {
   const requestId = uuidv4();
   const startTime = Date.now();
@@ -1074,6 +1084,7 @@ export const getTrendingSearches = async (req, res) => {
 };
 
 // GET /jobs/search/saved - Get saved searches (assuming user authentication required)
+// Controller: Gets saved job searches for a user
 export const getSavedSearches = async (req, res) => {
   const requestId = uuidv4();
   const startTime = Date.now();
@@ -1147,6 +1158,7 @@ export const getSavedSearches = async (req, res) => {
 };
 
 // GET /jobs/search/exclude - Search jobs excluding keywords
+// Controller: Searches jobs excluding certain keywords
 export const searchJobsExcludeKeywords = async (req, res) => {
   const requestId = uuidv4();
   const startTime = Date.now();
@@ -1253,6 +1265,7 @@ export const searchJobsExcludeKeywords = async (req, res) => {
 };
 
 // GET /jobs/search/natural - Natural language search for jobs
+// Controller: Searches jobs using natural language
 export const searchJobsNaturalLanguage = async (req, res) => {
   const requestId = uuidv4();
   const startTime = Date.now();
@@ -1359,6 +1372,7 @@ export const searchJobsNaturalLanguage = async (req, res) => {
 };
 
 // GET /jobs/search/history - Get search history (longer term, assume stored in Redis with more retention)
+// Controller: Gets job search history for a user
 export const getSearchHistory = async (req, res) => {
   const requestId = uuidv4();
   const startTime = Date.now();
@@ -1415,6 +1429,7 @@ export const getSearchHistory = async (req, res) => {
 };
 
 // GET /jobs/search/similar - Search similar jobs based on a jobId
+// Controller: Searches for similar jobs
 export const searchSimilarJobs = async (req, res) => {
   const requestId = uuidv4();
   const startTime = Date.now();
@@ -1545,6 +1560,7 @@ export const searchSimilarJobs = async (req, res) => {
 };
 
 // GET /jobs/search/exact - Exact phrase search for jobs
+// Controller: Searches jobs by exact phrase
 export const searchJobsExactPhrase = async (req, res) => {
   const requestId = uuidv4();
   const startTime = Date.now();

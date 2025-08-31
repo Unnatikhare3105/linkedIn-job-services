@@ -110,6 +110,7 @@
 // };
 
 // // GET /jobs/filter/location - Filter jobs by location
+// Controller: Filters jobs by location (GET /jobs/filter/location)
 // export const filterByLocation = async (req, res) => {
 //   const requestId = uuidv4();
 //   const startTime = Date.now();
@@ -222,6 +223,7 @@
 // };
 
 // // GET /jobs/filter/salary - Filter jobs by salary
+// Controller: Filters jobs by salary (GET /jobs/filter/salary)
 // export const filterBySalary = async (req, res) => {
 //   const requestId = uuidv4();
 //   const startTime = Date.now();
@@ -324,6 +326,7 @@
 // };
 
 // // GET /jobs/filter/job-type - Filter jobs by job type
+// Controller: Filters jobs by job type (GET /jobs/filter/job-type)
 // export const filterByJobType = async (req, res) => {
 //   const requestId = uuidv4();
 //   const startTime = Date.now();
@@ -418,6 +421,7 @@
 // };
 
 // // GET /jobs/filter/experience - Filter jobs by experience level
+// Controller: Filters jobs by experience level (GET /jobs/filter/experience)
 // export const filterByExperience = async (req, res) => {
 //   const requestId = uuidv4();
 //   const startTime = Date.now();
@@ -512,6 +516,7 @@
 // };
 
 // // GET /jobs/filter/industry - Filter jobs by industry
+// Controller: Filters jobs by industry (GET /jobs/filter/industry)
 // export const filterByIndustry = async (req, res) => {
 //   const requestId = uuidv4();
 //   const startTime = Date.now();
@@ -606,6 +611,7 @@
 // };
 
 // // GET /jobs/filter/skills - Filter jobs by skills
+// Controller: Filters jobs by skills (GET /jobs/filter/skills)
 // export const filterBySkills = async (req, res) => {
 //   const requestId = uuidv4();
 //   const startTime = Date.now();
@@ -701,6 +707,7 @@
 // };
 
 // // GET /jobs/filter/education - Filter jobs by education level
+// Controller: Filters jobs by education (GET /jobs/filter/education)
 // export const filterByEducation = async (req, res) => {
 //   const requestId = uuidv4();
 //   const startTime = Date.now();
@@ -795,6 +802,7 @@
 // };
 
 // // GET /jobs/filter/smart - Apply smart filters
+// Controller: Applies smart filters to jobs (GET /jobs/filter/smart)
 // export const applySmartFilters = async (req, res) => {
 //   const requestId = uuidv4();
 //   const startTime = Date.now();

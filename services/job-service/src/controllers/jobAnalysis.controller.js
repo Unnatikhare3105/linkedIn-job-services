@@ -42,6 +42,7 @@ SIMILAR_JOBS_RETRIEVED: 'Similar jobs retrieved successfully',
 }
 
 // POST /jobs/:jobId/view - Increment job view count
+// Controller: Increments job view count (POST /jobs/:jobId/view)
 export const incrementView = async (req, res) => {
   const requestId = uuidv4();
   const startTime = Date.now();
@@ -107,6 +108,7 @@ export const incrementView = async (req, res) => {
 };
 
 // POST /jobs/:jobId/save - Increment job save count
+// Controller: Increments job save count (POST /jobs/:jobId/save)
 export const incrementSave = async (req, res) => {
   const requestId = uuidv4();
   const startTime = Date.now();
@@ -172,6 +174,7 @@ export const incrementSave = async (req, res) => {
 };
 
 // GET /jobs/:jobId/analytics - Retrieve analytics for a job
+// Controller: Retrieves job analytics (GET /jobs/:jobId/analytics)
 export const getJobAnalytics = async (req, res) => {
   const requestId = uuidv4();
   const startTime = Date.now();
