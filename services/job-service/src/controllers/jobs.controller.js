@@ -1,43 +1,22 @@
-import { v4 as uuidv4 } from 'uuid';
-import Job,{ JobEventService, JobVectorService, StatsService } from '../model/job.model.js';
-import { sanitizeInput, sanitizeUserId } from '../utils/security.js';
-import * as jobService from '../services/job.services.js';
-import { normalizeArrayFields, validateSaveSearchInput, validateCreateJobInput, validateUpdateJobInput, validateListJobsFilters } from '../utils/validators.js';
-import logger from '../utils/logger.js';
-import CustomError from '../utils/CustomError.js';
-import CustomSuccess from '../utils/CustomSuccess.js';
-
-// Constants for HTTP status codes
-const HTTP_STATUS = {
-  OK: 200,
-  CREATED: 201,
-  BAD_REQUEST: 400,
-  NOT_FOUND: 404,
-  FORBIDDEN: 403,
-  INTERNAL_SERVER_ERROR: 500,
-};
-
-// Constants for error messages
-const ERROR_MESSAGES = {
-  INVALID_INPUT: 'Invalid input data',
-  JOB_NOT_FOUND: 'Job not found',
-  FORBIDDEN: 'User not authorized',
-  JOB_CREATION_FAILED: 'Failed to create job',
-  JOB_UPDATE_FAILED: 'Failed to update job',
-  JOB_DELETE_FAILED: 'Failed to delete job',
-  JOB_LIST_FAILED: 'Failed to list jobs',
-  FEATURED_JOBS_FAILED: 'Failed to fetch featured jobs',
-};
-
-// Constants for success messages
-const SUCCESS_MESSAGES = {
-  JOB_CREATED: 'Job created successfully',
-  JOB_UPDATED: 'Job updated successfully',
-  JOB_DELETED: 'Job deleted successfully',
-  JOB_FOUND: 'Job retrieved successfully',
-  JOBS_LISTED: 'Jobs retrieved successfully',
-  FEATURED_JOBS: 'Featured jobs retrieved successfully',
-};
+import { v4 as uuidv4 } from "uuid";
+import Job, { JobEventService } from "../model/job.model.js";
+import { sanitizeInput, sanitizeUserId } from "../utils/security.js";
+import * as jobService from "../services/job.services.js";
+import {
+  normalizeArrayFields,
+  validateSaveSearchInput,
+  validateCreateJobInput,
+  validateUpdateJobInput,
+  validateListJobsFilters,
+} from "../validations/job.validations.js";
+import logger from "../utils/logger.js";
+import CustomError from "../utils/CustomError.js";
+import CustomSuccess from "../utils/CustomSuccess.js";
+import {
+  HTTP_STATUS,
+  ERROR_MESSAGES,
+  SUCCESS_MESSAGES,
+} from "../constants/http.js";
 
 // Controller: Handles creation of a new job (POST /jobs)
 export const createJobController = async (req, res) => {
@@ -45,50 +24,71 @@ export const createJobController = async (req, res) => {
   const startTime = Date.now();
 
   try {
-
     if (!req.body) {
       return res.status(400).json({
         success: false,
-        message: 'Request body is required'
+        message: "Request body is required",
       });
     }
 
-     const normalizedBody = normalizeArrayFields(req.body);
-      console.log('1. Raw body skills:', typeof req.body.skills, JSON.stringify(req.body.skills, null, 2));
+    const normalizedBody = normalizeArrayFields(req.body);
+    console.log(
+      "1. Raw body skills:",
+      typeof req.body.skills,
+      JSON.stringify(req.body.skills, null, 2)
+    );
 
     // Sanitize and validate input
     const sanitizedInput = sanitizeInput(normalizedBody);
-    console.log('2. After sanitizeInput skills:', typeof sanitizedInput.skills, JSON.stringify(sanitizedInput.skills, null, 2));
-    
+    console.log(
+      "2. After sanitizeInput skills:",
+      typeof sanitizedInput.skills,
+      JSON.stringify(sanitizedInput.skills, null, 2)
+    );
+
     const { error, value } = validateCreateJobInput(sanitizedInput);
-    console.log('3. After validation skills:', typeof value?.skills, JSON.stringify(value?.skills, null, 2));
+    console.log(
+      "3. After validation skills:",
+      typeof value?.skills,
+      JSON.stringify(value?.skills, null, 2)
+    );
     if (error) {
-      return res.status(HTTP_STATUS.BAD_REQUEST).json(new CustomError({
-        success: false,
-        message: `rfrsdgvrdtgbtgb ${error.message} , ${error}`,
-        statusCode: HTTP_STATUS.BAD_REQUEST,
-        details: error
-      }));
+      return res.status(HTTP_STATUS.BAD_REQUEST).json(
+        new CustomError({
+          success: false,
+          message: `rfrsdgvrdtgbtgb ${error.message} , ${error}`,
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+          details: error,
+        })
+      );
     }
 
-     // Check user authorization
+    // Check user authorization
     if (!req.user || !req.user.canCreateJobs) {
-      logger.warn(`[${requestId}] Unauthorized job creation attempt`, { userId: req.user?.id });
-      return res.status(HTTP_STATUS.FORBIDDEN).json(new CustomError({
-        success: false,
-        message: `hjugvykuhblhjvhm ${ERROR_MESSAGES.FORBIDDEN}`,
-        statusCode: HTTP_STATUS.FORBIDDEN
-      }));
+      logger.warn(`[${requestId}] Unauthorized job creation attempt`, {
+        userId: req.user?.id,
+      });
+      return res.status(HTTP_STATUS.FORBIDDEN).json(
+        new CustomError({
+          success: false,
+          message: `hjugvykuhblhjvhm ${ERROR_MESSAGES.FORBIDDEN_JOB}`,
+          statusCode: HTTP_STATUS.FORBIDDEN,
+        })
+      );
     }
 
-    console.log('4. About to call jobService.createJob');
-console.log('4.1. req.user:', JSON.stringify(req.user, null, 2));
-console.log('4.2. requestId:', requestId);
-console.log('4.3. value (sanitizedInput):', typeof value);
+    console.log("4. About to call jobService.createJob");
+    console.log("4.1. req.user:", JSON.stringify(req.user, null, 2));
+    console.log("4.2. requestId:", requestId);
+    console.log("4.3. value (sanitizedInput):", typeof value);
 
-    const createJob = await jobService.createJob({userId : req.user.id, requestId, sanitizedInput : value});
+    const createJob = await jobService.createJob({
+      userId: req.user.id,
+      requestId,
+      sanitizedInput: value,
+    });
 
-console.log('5. Service call completed successfully');
+    console.log("5. Service call completed successfully");
     // Log success
     logger.info(`[${requestId}] Job created successfully`, {
       jobId: createJob.jobId,
@@ -97,16 +97,18 @@ console.log('5. Service call completed successfully');
       duration: Date.now() - startTime,
     });
 
-    return res.status(HTTP_STATUS.CREATED).json(new CustomSuccess({
-      message: SUCCESS_MESSAGES.JOB_CREATED,
-      data: {
-        jobId: createJob.jobId,
-        title: createJob.title,
-        companyId: createJob.companyId,
-        status: createJob.status,
-        createdAt: createJob.createdAt,
-      },
-    }));
+    return res.status(HTTP_STATUS.CREATED).json(
+      new CustomSuccess({
+        message: SUCCESS_MESSAGES.JOB_CREATED,
+        data: {
+          jobId: createJob.jobId,
+          title: createJob.title,
+          companyId: createJob.companyId,
+          status: createJob.status,
+          createdAt: createJob.createdAt,
+        },
+      })
+    );
   } catch (error) {
     logger.error(`[${requestId}] Failed to create job: ${error.message}`, {
       userId: req.user?.id,
@@ -114,11 +116,13 @@ console.log('5. Service call completed successfully');
       input: req.body,
       duration: Date.now() - startTime,
     });
-    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(new CustomError({
-      success: false,
-      message: ERROR_MESSAGES.INTERNAL_SERVER_ERROR,
-      error: error.message,
-    }));
+    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(
+      new CustomError({
+        success: false,
+        message: ERROR_MESSAGES.INTERNAL_SERVER_ERROR,
+        error: error.message,
+      })
+    );
   }
 };
 
@@ -129,17 +133,26 @@ export const getJobByIdController = async (req, res) => {
 
   try {
     const { jobId } = req.params;
-    if (!jobId || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(jobId)) {
-        return res.status(HTTP_STATUS.BAD_REQUEST).json(
-          new CustomError({
-            message: ERROR_MESSAGES.INVALID_INPUT,
-            statusCode: HTTP_STATUS.BAD_REQUEST,
-            details: 'Invalid job ID format'
+    if (
+      !jobId ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        jobId
+      )
+    ) {
+      return res.status(HTTP_STATUS.BAD_REQUEST).json(
+        new CustomError({
+          message: ERROR_MESSAGES.INVALID_INPUT,
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+          details: "Invalid job ID format",
         })
       );
     }
 
- const job = await jobService.getJobById({userId: req.user?.id, jobId, requestId });
+    const job = await jobService.getJobById({
+      userId: req.user?.id,
+      jobId,
+      requestId,
+    });
 
     logger.info(`[${requestId}] Job retrieved successfully`, {
       jobId,
@@ -147,10 +160,12 @@ export const getJobByIdController = async (req, res) => {
       duration: Date.now() - startTime,
     });
 
-    return res.status(HTTP_STATUS.OK).json(new CustomSuccess({
-      message: SUCCESS_MESSAGES.JOB_FOUND,
-      data: job,
-    }));
+    return res.status(HTTP_STATUS.OK).json(
+      new CustomSuccess({
+        message: SUCCESS_MESSAGES.JOB_FOUND,
+        data: job,
+      })
+    );
   } catch (error) {
     logger.error(`[${requestId}] Failed to fetch job: ${error.message}`, {
       jobId: req.params.jobId,
@@ -158,11 +173,13 @@ export const getJobByIdController = async (req, res) => {
       error: error.stack,
       duration: Date.now() - startTime,
     });
-    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(new CustomError({
-      message: ERROR_MESSAGES.INTERNAL_SERVER_ERROR,
-      statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR,
-      details: error
-    }));
+    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(
+      new CustomError({
+        message: ERROR_MESSAGES.INTERNAL_SERVER_ERROR,
+        statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR,
+        details: error,
+      })
+    );
   }
 };
 
@@ -173,45 +190,69 @@ export const updateJobController = async (req, res) => {
 
   try {
     const { jobId } = req.params;
-    if( !jobId || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(jobId)) {
-        return res.status(HTTP_STATUS.BAD_REQUEST).json(
-          new CustomError({
-            message: ERROR_MESSAGES.INVALID_INPUT,
-            statusCode: HTTP_STATUS.BAD_REQUEST
-          })
-        );
-    }
-    const sanitizedInput = sanitizeInput(req.body);
-    const { error, value } = validateUpdateJobInput(sanitizedInput);
-    if (error) {
-      logger.warn(`[${requestId}] Invalid input for job update: ${error.details[0].message}`, {
-        jobId,
-        userId: req.user?.id,
-        input: sanitizedInput,
-      });
+    if (
+      !jobId ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        jobId
+      )
+    ) {
       return res.status(HTTP_STATUS.BAD_REQUEST).json(
         new CustomError({
           message: ERROR_MESSAGES.INVALID_INPUT,
           statusCode: HTTP_STATUS.BAD_REQUEST,
-          details: error.details
+        })
+      );
+    }
+    const sanitizedInput = sanitizeInput(req.body);
+    const { error, value } = validateUpdateJobInput(sanitizedInput);
+    if (error) {
+      logger.warn(
+        `[${requestId}] Invalid input for job update: ${error.details[0].message}`,
+        {
+          jobId,
+          userId: req.user?.id,
+          input: sanitizedInput,
+        }
+      );
+      return res.status(HTTP_STATUS.BAD_REQUEST).json(
+        new CustomError({
+          message: ERROR_MESSAGES.INVALID_INPUT,
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+          details: error.details,
         })
       );
     }
 
     if (!req.user || !req.user.canUpdateJobs) {
-      logger.warn(`[${requestId}] Unauthorized job update attempt`, { jobId, userId: req.user?.id });
-      return res.status(HTTP_STATUS.FORBIDDEN).json(
-        new CustomError({ message: ERROR_MESSAGES.FORBIDDEN, statusCode: HTTP_STATUS.FORBIDDEN })
-      );
+      logger.warn(`[${requestId}] Unauthorized job update attempt`, {
+        jobId,
+        userId: req.user?.id,
+      });
+      return res
+        .status(HTTP_STATUS.FORBIDDEN)
+        .json(
+          new CustomError({
+            message: ERROR_MESSAGES.FORBIDDEN_JOB,
+            statusCode: HTTP_STATUS.FORBIDDEN,
+          })
+        );
     }
 
-    const updateJob = await jobService.updateJob({ jobId, userId: req.user?.id, requestId, updates: sanitizedInput });
+    const updateJob = await jobService.updateJob({
+      jobId,
+      userId: req.user?.id,
+      requestId,
+      updates: sanitizedInput,
+    });
     if (!updateJob) {
-      logger.warn(`[${requestId}] Job not found for update`, { jobId, userId: req.user?.id });
+      logger.warn(`[${requestId}] Job not found for update`, {
+        jobId,
+        userId: req.user?.id,
+      });
       return res.status(HTTP_STATUS.NOT_FOUND).json(
-        new CustomError({ 
-            message: ERROR_MESSAGES.JOB_NOT_FOUND, 
-            statusCode: HTTP_STATUS.NOT_FOUND 
+        new CustomError({
+          message: ERROR_MESSAGES.JOB_NOT_FOUND,
+          statusCode: HTTP_STATUS.NOT_FOUND,
         })
       );
     }
@@ -241,11 +282,13 @@ export const updateJobController = async (req, res) => {
       input: req.body,
       duration: Date.now() - startTime,
     });
-    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(new CustomError({
-      message: ERROR_MESSAGES.INTERNAL_SERVER_ERROR,
-      statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR,
-      details: error.details
-    }));
+    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(
+      new CustomError({
+        message: ERROR_MESSAGES.INTERNAL_SERVER_ERROR,
+        statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR,
+        details: error.details,
+      })
+    );
   }
 };
 
@@ -256,35 +299,52 @@ export const deleteJobController = async (req, res) => {
   const { jobId } = req.params;
 
   try {
-    if (!jobId || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(jobId)) {
+    if (
+      !jobId ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        jobId
+      )
+    ) {
       throw new CustomError({
         message: ERROR_MESSAGES.INVALID_INPUT,
-        statusCode: HTTP_STATUS.BAD_REQUEST
+        statusCode: HTTP_STATUS.BAD_REQUEST,
       });
     }
 
     if (!req.user || !req.user.canDeleteJobs) {
-      logger.warn(`[${requestId}] Unauthorized job deletion attempt`, { jobId, userId: req.user?.id });
+      logger.warn(`[${requestId}] Unauthorized job deletion attempt`, {
+        jobId,
+        userId: req.user?.id,
+      });
       throw new CustomError({
-        message: ERROR_MESSAGES.FORBIDDEN,
-        statusCode: HTTP_STATUS.FORBIDDEN
+        message: ERROR_MESSAGES.FORBIDDEN_JOB,
+        statusCode: HTTP_STATUS.FORBIDDEN,
       });
     }
 
     const updatedBy = sanitizeUserId(req.user.id);
     const job = await Job.findOneAndUpdate(
       { jobId, isDeleted: false },
-      { $set: { isDeleted: true, updatedBy, 'dates.lastUpdated': new Date() }, $inc: { version: 1 } },
+      {
+        $set: { isDeleted: true, updatedBy, "dates.lastUpdated": new Date() },
+        $inc: { version: 1 },
+      },
       { new: true }
     ).lean();
 
     if (!job) {
-      logger.warn(`[${requestId}] Job not found for deletion`, { jobId, userId: req.user?.id });
-      throw new CustomError(ERROR_MESSAGES.JOB_NOT_FOUND, HTTP_STATUS.NOT_FOUND);
+      logger.warn(`[${requestId}] Job not found for deletion`, {
+        jobId,
+        userId: req.user?.id,
+      });
+      throw new CustomError(
+        ERROR_MESSAGES.JOB_NOT_FOUND,
+        HTTP_STATUS.NOT_FOUND
+      );
     }
 
     // Emit job deleted event
-    await JobEventService.emit('job:deleted', {
+    await JobEventService.emit("job:deleted", {
       jobId,
       requestId,
     });
@@ -306,11 +366,13 @@ export const deleteJobController = async (req, res) => {
       error: error.stack,
       duration: Date.now() - startTime,
     });
-    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(new CustomError({
-      message: ERROR_MESSAGES.INTERNAL_SERVER_ERROR,
-      statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR,
-      details: error.details
-    }));
+    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(
+      new CustomError({
+        message: ERROR_MESSAGES.INTERNAL_SERVER_ERROR,
+        statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR,
+        details: error.details,
+      })
+    );
   }
 };
 
@@ -323,18 +385,24 @@ export const listJobsController = async (req, res) => {
   try {
     const { error, value } = validateListJobsFilters(sanitizedFilters);
     if (error) {
-      logger.warn(`[${requestId}] Invalid filters for listing jobs: ${error.details[0].message}`, {
-        userId: req.user?.id,
-        filters: sanitizedFilters,
-      });
+      logger.warn(
+        `[${requestId}] Invalid filters for listing jobs: ${error.details[0].message}`,
+        {
+          userId: req.user?.id,
+          filters: sanitizedFilters,
+        }
+      );
       throw new CustomError({
         message: ERROR_MESSAGES.INVALID_INPUT,
         statusCode: HTTP_STATUS.BAD_REQUEST,
-        details: error.details
+        details: error.details,
       });
     }
 
-const jobList = await jobService.listJobs({ filters: sanitizedFilters, requestId });
+    const jobList = await jobService.listJobs({
+      filters: sanitizedFilters,
+      requestId,
+    });
 
     logger.info(`[${requestId}] Jobs listed successfully`, {
       userId: req.user?.id,
@@ -356,11 +424,13 @@ const jobList = await jobService.listJobs({ filters: sanitizedFilters, requestId
       filters: req.query,
       duration: Date.now() - startTime,
     });
-    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(new CustomError({
-      message: ERROR_MESSAGES.INTERNAL_SERVER_ERROR,
-      statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR,
-      details: error.details
-    }));
+    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(
+      new CustomError({
+        message: ERROR_MESSAGES.INTERNAL_SERVER_ERROR,
+        statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR,
+        details: error.details,
+      })
+    );
   }
 };
 
@@ -370,13 +440,14 @@ export const featuredJobsController = async (req, res) => {
   const startTime = Date.now();
 
   try {
-    
     const jobs = await jobService.getFeaturedJobs({ requestId });
     if (!jobs || jobs.length === 0) {
-      logger.warn(`[${requestId}] No featured jobs found`, { userId: req.user?.id });
+      logger.warn(`[${requestId}] No featured jobs found`, {
+        userId: req.user?.id,
+      });
       throw new CustomError({
         message: ERROR_MESSAGES.FEATURED_JOBS_FAILED,
-        statusCode: HTTP_STATUS.NOT_FOUND
+        statusCode: HTTP_STATUS.NOT_FOUND,
       });
     }
 
@@ -393,11 +464,14 @@ export const featuredJobsController = async (req, res) => {
       data: jobs,
     });
   } catch (error) {
-    logger.error(`[${requestId}] Failed to fetch featured jobs: ${error.message}`, {
-      userId: req.user?.id,
-      error: error.stack,
-      duration: Date.now() - startTime,
-    });
+    logger.error(
+      `[${requestId}] Failed to fetch featured jobs: ${error.message}`,
+      {
+        userId: req.user?.id,
+        error: error.stack,
+        duration: Date.now() - startTime,
+      }
+    );
     next(error);
   }
 };
@@ -405,95 +479,92 @@ export const featuredJobsController = async (req, res) => {
 // Controller: Saves a job search for a user (POST /jobs/save-search)
 export const saveJobsController = async (req, res) => {
   const requestId = uuidv4();
-    const startTime = Date.now();
-    const userId = req.user?.id;
-    const { type, query } = req.body;
-  
-    if (!userId) {
-      return res.status(HTTP_STATUS.UNAUTHORIZED).json(
+  const startTime = Date.now();
+  const userId = req.user?.id;
+  const { type, query } = req.body;
+
+  if (!userId) {
+    return res.status(HTTP_STATUS.UNAUTHORIZED).json(
+      new CustomError({
+        success: false,
+        message: "Authentication required",
+        statusCode: HTTP_STATUS.UNAUTHORIZED,
+      })
+    );
+  }
+
+  try {
+    // Ensure Redis client is connected
+    if (!redisClient.isOpen) {
+      await redisClient.connect();
+      logger.info(`[${requestId}] Redis client connected`);
+    }
+
+    const sanitizedInput = sanitizeInput({ type, query });
+    const { error, value } = validateSaveSearchInput(sanitizedInput);
+    if (error) {
+      return res.status(HTTP_STATUS.BAD_REQUEST).json(
         new CustomError({
           success: false,
-          message: 'Authentication required',
-          statusCode: HTTP_STATUS.UNAUTHORIZED,
+          message: `Validation error: ${error.message}`,
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+          details: error,
         })
       );
     }
-  
-    try {
-      // Ensure Redis client is connected
-      if (!redisClient.isOpen) {
-        await redisClient.connect();
-        logger.info(`[${requestId}] Redis client connected`);
-      }
-  
-      const sanitizedInput = sanitizeInput({ type, query });
-      const { error, value } = validateSaveSearchInput(sanitizedInput);
-      if (error) {
-        return res.status(HTTP_STATUS.BAD_REQUEST).json(
-          new CustomError({
-            success: false,
-            message: `Validation error: ${error.message}`,
-            statusCode: HTTP_STATUS.BAD_REQUEST,
-            details: error,
-          })
-        );
-      }
-  
-      // Save search to Redis list
-      await redisClient.lPush(
-        `saved:searches:${userId}`,
-        JSON.stringify({
-          type: value.type,
-          query: value.query,
-          timestamp: new Date().toISOString(),
-        })
-      );
-      // Trim list to keep only the last 10 searches
-      await redisClient.lTrim(`saved:searches:${userId}`, 0, 9);
-  
-      // Increment trending searches
-      await redisClient.zIncrBy('trending:searches', 1, value.query);
-  
-      // Emit Kafka event
-      JobEventService.emit('analytics:save_search', {
-        userId,
+
+    // Save search to Redis list
+    await redisClient.lPush(
+      `saved:searches:${userId}`,
+      JSON.stringify({
         type: value.type,
         query: value.query,
-        metadata: { ip: req.ip, userAgent: req.headers['user-agent'] },
-      }).catch((err) =>
-        logger.error(`[${requestId}] Async save search event failed`, { err })
-      );
-  
-      logger.info(`[${requestId}] Search saved`, {
-        userId,
-        type: value.type,
-        query: value.query,
-        duration: Date.now() - startTime,
-      });
-  
-      return res.status(HTTP_STATUS.OK).json(
-        new CustomSuccess({
-          message: 'Search saved successfully',
-          data: { type: value.type, query: value.query },
-        })
-      );
-    } catch (error) {
-      logger.error(
-        `[${requestId}] Failed to save search: ${error.message}`,
-        {
-          userId,
-          type,
-          query,
-          error: error.stack,
-          duration: Date.now() - startTime,
-        }
-      );
-      return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(
-        new CustomError({
-          success: false,
-          message: ERROR_MESSAGES.INTERNAL_SERVER_ERROR,
-          error: error.message,
-        })
-      );
-    }
+        timestamp: new Date().toISOString(),
+      })
+    );
+    // Trim list to keep only the last 10 searches
+    await redisClient.lTrim(`saved:searches:${userId}`, 0, 9);
+
+    // Increment trending searches
+    await redisClient.zIncrBy("trending:searches", 1, value.query);
+
+    // Emit Kafka event
+    JobEventService.emit("analytics:save_search", {
+      userId,
+      type: value.type,
+      query: value.query,
+      metadata: { ip: req.ip, userAgent: req.headers["user-agent"] },
+    }).catch((err) =>
+      logger.error(`[${requestId}] Async save search event failed`, { err })
+    );
+
+    logger.info(`[${requestId}] Search saved`, {
+      userId,
+      type: value.type,
+      query: value.query,
+      duration: Date.now() - startTime,
+    });
+
+    return res.status(HTTP_STATUS.OK).json(
+      new CustomSuccess({
+        message: "Search saved successfully",
+        data: { type: value.type, query: value.query },
+      })
+    );
+  } catch (error) {
+    logger.error(`[${requestId}] Failed to save search: ${error.message}`, {
+      userId,
+      type,
+      query,
+      error: error.stack,
+      duration: Date.now() - startTime,
+    });
+    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(
+      new CustomError({
+        success: false,
+        message: ERROR_MESSAGES.INTERNAL_SERVER_ERROR,
+        error: error.message,
+      })
+    );
+  }
 };

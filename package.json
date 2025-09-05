@@ -1,0 +1,7 @@
+{
+  "dependencies": {
+    "@elastic/elasticsearch": "^9.1.1",
+    "express-rate-limit": "^8.0.1",
+    "opossum": "^9.0.0"
+  }
+}

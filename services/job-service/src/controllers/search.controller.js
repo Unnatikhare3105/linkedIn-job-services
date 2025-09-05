@@ -1,54 +1,368 @@
-// controllers/searchController.js
-// Production-ready search controllers for job platform
-// Optimized for scalability with 10M users:
-// - Uses MongoDB text indexes for efficient search
-// - Redis caching for autocomplete and recent searches
-// - Kafka events for search analytics
-// - Input sanitization and validation for security
-// - Pagination for large result sets
-// - Recommendations: Redis rate limiting, monitor with Prometheus, scale with PM2
-
 import { v4 as uuidv4 } from "uuid";
 import logger from "../utils/logger.js";
 import CustomError from "../utils/CustomError.js";
 import CustomSuccess from "../utils/CustomSuccess.js";
 import Job, { JobEventService } from "../model/job.model.js";
+// import UserActivity from "../models/UserActivity.js";
 import redisClient from "../config/redis.js";
 import { sanitizeInput } from "../utils/security.js";
-import { validateSearchInput, validateSaveSearchInput, validateSkillsSearchInput } from "../utils/validators.js";
+import {
+  buildRecentlyViewedQuery,
+  getSortOptions,
+  SearchEventService,
+  SearchStatsService,
+  SearchVectorService,
+  SearchIndexMonitoringService,
+  SearchMaintenanceService,
+  AdvancedSearchEngine,
+  AnalyticsProcessor,
+  RecommendationEngine,
+  RecommendationUtils
+} from "../services/search.services.js";
+import {
+  validateSearchInput,
+  validateSkillsSearchInput,
+  validateRecentlyViewedInput,
+  validateOfflineJobsInput,
+} from "../validations/search.validations.js";
+import {
+  HTTP_STATUS,
+  ERROR_MESSAGES,
+  SUCCESS_MESSAGES,
+} from "../constants/http.js";
+import SearchHistory, {
+  searchDuration,
+  searchRequests,
+  activeSearches,
+  CacheManager,
+  PersonalizationEngine
+} from "../model/searchHistory.model.js";
 
-export const SUCCESS_MESSAGES = {
-  // ... other messages
-  JOBS_RETRIEVED: "Jobs retrieved successfully",
-  AUTOCOMPLETE_RETRIEVED: "Autocomplete suggestions retrieved successfully",
-  RECENT_SEARCHES_RETRIEVED: "Recent searches retrieved successfully",
-  SUGGESTIONS_RETRIEVED: "Search suggestions retrieved successfully",
-  TRENDING_RETRIEVED: "Trending searches retrieved successfully",
-  SAVED_RETRIEVED: "Saved searches retrieved successfully",
-  HISTORY_RETRIEVED: "Search history retrieved successfully",
+// GET /jobs/search/advanced - Advanced unified search
+export const advancedJobSearch = async (req, res) => {
+  const requestId = uuidv4();
+  const startTime = Date.now();
+  const userId = req.user?.id;
+  const userType = req.user?.subscription || "free";
+
+  activeSearches.inc();
+  const endTimer = searchDuration.startTimer({
+    search_type: "advanced",
+    status: "pending",
+    user_type: userType,
+  });
+
+  try {
+    // Validate input
+    const sanitizedInput = sanitizeInput(req.query);
+    const { error, value } = validateAdvancedSearchInput(sanitizedInput);
+    if (error) {
+      searchRequests.inc({
+        search_type: "advanced",
+        status: "validation_error",
+      });
+      endTimer({ status: "validation_error" });
+      return res.status(HTTP_STATUS.BAD_REQUEST).json(
+        new CustomError({
+          success: false,
+          message: `Validation error: ${error.details
+            .map((d) => d.message)
+            .join(", ")}`,
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+          details: error.details,
+        })
+      );
+    }
+
+    const { query, page, limit, filters, sort, personalize } = value;
+
+    // Check cache first
+    const cacheKey = `search:${JSON.stringify({
+      query,
+      page,
+      limit,
+      filters,
+      sort,
+    })}`;
+    let result = await CacheManager.getMultiLevel(
+      cacheKey,
+      personalize ? userId : null
+    );
+
+    if (result) {
+      logger.info(`[${requestId}] Advanced search from cache`, {
+        userId,
+        query,
+        page,
+        limit,
+        duration: Date.now() - startTime,
+      });
+      searchRequests.inc({ search_type: "advanced", status: "cache_hit" });
+      endTimer({ status: "cache_hit" });
+      activeSearches.dec();
+      return res.status(HTTP_STATUS.OK).json(
+        new CustomSuccess({
+          message: SUCCESS_MESSAGES.JOBS_RETRIEVED,
+          data: result,
+        })
+      );
+    }
+
+    // Get user profile for personalization
+    let userProfile = null;
+    if (userId && personalize) {
+      userProfile = await PersonalizationEngine.getUserProfile(userId);
+    }
+
+    // Try Elasticsearch first, fallback to MongoDB
+    try {
+      result = await esCircuitBreaker.fire(() =>
+        AdvancedSearchEngine.searchElasticsearch(
+          query,
+          filters,
+          page,
+          limit,
+          sort,
+          userProfile
+        )
+      );
+      logger.info(`[${requestId}] Search via Elasticsearch successful`);
+    } catch (esError) {
+      logger.warn(`[${requestId}] Elasticsearch failed, using MongoDB`, {
+        error: esError.message,
+      });
+      result = await dbCircuitBreaker.fire(() =>
+        AdvancedSearchEngine.searchMongoDB(
+          query,
+          filters,
+          page,
+          limit,
+          sort,
+          userProfile
+        )
+      );
+    }
+
+    // Sort by personalization score if personalized
+    if (userProfile && personalize) {
+      result.hits.sort((a, b) => {
+        if (sort === "relevance") {
+          return (
+            b.personalizationScore * 0.3 +
+            (b.score || 0) * 0.7 -
+            (a.personalizationScore * 0.3 + (a.score || 0) * 0.7)
+          );
+        }
+        return b.personalizationScore - a.personalizationScore;
+      });
+    }
+
+    const responseData = {
+      jobs: result.hits,
+      pagination: {
+        page,
+        limit,
+        total: result.total,
+        totalPages: Math.ceil(result.total / limit),
+        hasNextPage: page < Math.ceil(result.total / limit),
+        hasPrevPage: page > 1,
+      },
+      metadata: {
+        searchTime: Date.now() - startTime,
+        personalized: !!userProfile,
+        source: "elasticsearch", // Could be dynamic
+        filters: filters,
+        sort: sort,
+      },
+    };
+
+    // Cache the result
+    await CacheManager.setMultiLevel(
+      cacheKey,
+      responseData,
+      personalize ? userId : null
+    );
+
+    // Store search in recent searches
+    if (userId) {
+      await redisCluster.lPush(
+        `recent:searches:${userId}`,
+        JSON.stringify({
+          type: "advanced",
+          query,
+          filters,
+          timestamp: new Date().toISOString(),
+          resultCount: result.total,
+        })
+      );
+      await redisCluster.lTrim(`recent:searches:${userId}`, 0, 19); // Keep last 20
+    }
+
+    // Add to analytics buffer
+    AnalyticsProcessor.addEvent({
+      userId,
+      type: "advanced_search",
+      query,
+      filters,
+      resultCount: result.total,
+      metadata: {
+        ip: req.ip,
+        userAgent: req.headers["user-agent"],
+        personalized: !!userProfile,
+        searchTime: Date.now() - startTime,
+      },
+    });
+
+    // Track user activity
+    if (userId) {
+      UserActivity.create({
+        userId,
+        type: "search",
+        metadata: {
+          query,
+          filters,
+          resultCount: result.total,
+          page,
+          searchTime: Date.now() - startTime,
+        },
+      }).catch((err) => logger.error("Acttivity tracking failed", err));
+    }
+
+    logger.info(`[${requestId}] Advanced search completed`, {
+      userId,
+      query,
+      filters,
+      resultCount: result.total,
+      page,
+      limit,
+      personalized: !!userProfile,
+      duration: Date.now() - startTime,
+    });
+
+    searchRequests.inc({ search_type: "advanced", status: "success" });
+    endTimer({ status: "success" });
+    activeSearches.dec();
+
+    return res.status(HTTP_STATUS.OK).json(
+      new CustomSuccess({
+        message: SUCCESS_MESSAGES.JOBS_RETRIEVED,
+        data: responseData,
+      })
+    );
+  } catch (error) {
+    logger.error([`${requestId}`]`Advanced search failed: ${error.message}`, {
+      userId,
+      query: req.query.query,
+      error: error.stack,
+      duration: Date.now() - startTime,
+    });
+
+    searchRequests.inc({ search_type: "advanced", status: "error" });
+    endTimer({ status: "error" });
+    activeSearches.dec();
+
+    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(
+      new CustomError({
+        success: false,
+        message: ERROR_MESSAGES.INTERNAL_SERVER_ERROR,
+        error:
+          process.env.NODE_ENV === "development" ? error.message : undefined,
+      })
+    );
+  }
 };
 
-export const ERROR_MESSAGES = {
-  // ... other messages
-  JOBS_NOT_FOUND: "No jobs found",
-  AUTOCOMPLETE_NOT_FOUND: "No autocomplete suggestions found",
-  RECENT_SEARCHES_NOT_FOUND: "No recent searches found",
-  SUGGESTIONS_NOT_FOUND: "No suggestions found",
-  TRENDING_NOT_FOUND: "No trending searches found",
-  SAVED_NOT_FOUND: "No saved searches found",
-  HISTORY_NOT_FOUND: "No search history found",
-};
+// GET /jobs/recommendations - Personalized job recommendations
+export const getJobRecommendations = async (req, res) => {
+  const requestId = uuidv4();
+  const startTime = Date.now();
+  const userId = req.user?.id;
+  const { limit = 20, type = "mixed" } = req.query;
 
-export const HTTP_STATUS = {
-  OK: 200,
-  CREATED: 201,
-  NO_CONTENT: 204,
-  BAD_REQUEST: 400,
-  UNAUTHORIZED: 401,
-  FORBIDDEN: 403,
-  NOT_FOUND: 404,
-  CONFLICT: 409,
-  INTERNAL_SERVER_ERROR: 500,
+  if (!userId) {
+    return res.status(HTTP_STATUS.UNAUTHORIZED).json(
+      new CustomError({
+        success: false,
+        message: "Authentication required for recommendations",
+        statusCode: HTTP_STATUS.UNAUTHORIZED,
+      })
+    );
+  }
+
+  try {
+    // Check cache first
+    const cacheKey = `recommendations:${type}:${userId}:${limit}`;
+    let recommendations = await CacheManager.getMultiLevel(cacheKey, userId);
+
+    if (recommendations) {
+      logger.info(`[${requestId}] Recommendations from cache`, {
+        userId,
+        type,
+        limit,
+        duration: Date.now() - startTime,
+      });
+      return res.status(HTTP_STATUS.OK).json(
+        new CustomSuccess({
+          message: "Job recommendations retrieved successfully",
+          data: recommendations,
+        })
+      );
+    }
+
+    // Get user profile and generate recommendations
+    const userProfile = await PersonalizationEngine.getUserProfile(userId);
+    recommendations = await RecommendationEngine.generateRecommendations(
+      userId,
+      userProfile,
+      type,
+      limit
+    );
+
+    // Cache recommendations
+    await CacheManager.setMultiLevel(cacheKey, recommendations, userId);
+
+    // Track recommendation view
+    AnalyticsProcessor.addEvent({
+      userId,
+      type: "recommendation_view",
+      recommendationType: type,
+      count: recommendations.jobs?.length || 0,
+      metadata: {
+        ip: req.ip,
+        userAgent: req.headers["user-agent"],
+      },
+    });
+
+    logger.info(`[${requestId}] Recommendations generated`, {
+      userId,
+      type,
+      count: recommendations.jobs?.length,
+      duration: Date.now() - startTime,
+    });
+
+    return res.status(HTTP_STATUS.OK).json(
+      new CustomSuccess({
+        message: "Job recommendations retrieved successfully",
+        data: recommendations,
+      })
+    );
+  } catch (error) {
+    logger.error(`[${requestId}] Recommendations failed: ${error.message}`, {
+      userId,
+      type,
+      error: error.stack,
+      duration: Date.now() - startTime,
+    });
+
+    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(
+      new CustomError({
+        success: false,
+        message: ERROR_MESSAGES.INTERNAL_SERVER_ERROR,
+        error:
+          process.env.NODE_ENV === "development" ? error.message : undefined,
+      })
+    );
+  }
 };
 
 // GET /jobs/search/title - Search jobs by title
@@ -76,32 +390,32 @@ export const searchJobsByTitle = async (req, res) => {
     // Perform text search
     const jobs = await Job.find({
       $text: { $search: value.query },
-      status: 'active',
+      status: "active",
       isDeleted: false,
-      'dates.expires': { $gt: new Date() },
+      "dates.expires": { $gt: new Date() },
     })
-      .select('jobId title companyId location jobType createdAt')
-      .sort({ score: { $meta: 'textScore' } })
+      .select("jobId title companyId location jobType createdAt")
+      .sort({ score: { $meta: "textScore" } })
       .skip((parseInt(value.page) - 1) * parseInt(value.limit))
       .limit(parseInt(value.limit))
       .lean();
 
     const total = await Job.countDocuments({
       $text: { $search: value.query },
-      status: 'active',
+      status: "active",
       isDeleted: false,
-      'dates.expires': { $gt: new Date() },
+      "dates.expires": { $gt: new Date() },
     });
 
     // Increment score for the search query in trending:searches
-    await redisClient.zIncrBy('trending:searches', 1, value.query);
+    await redisClient.zIncrBy("trending:searches", 1, value.query);
 
     // Store search in Redis for recent searches (if authenticated)
     if (userId) {
       await redisClient.lPush(
         `recent:searches:${userId}`,
         JSON.stringify({
-          type: 'title',
+          type: "title",
           query: value.query,
           timestamp: new Date().toISOString(),
         })
@@ -110,12 +424,12 @@ export const searchJobsByTitle = async (req, res) => {
     }
 
     // Emit search event
-    JobEventService.emit('analytics:search', {
+    JobEventService.emit("analytics:search", {
       userId,
-      type: 'title',
+      type: "title",
       query: value.query,
       resultCount: jobs.length,
-      metadata: { ip: req.ip, userAgent: req.headers['user-agent'] },
+      metadata: { ip: req.ip, userAgent: req.headers["user-agent"] },
     }).catch((err) =>
       logger.error(`[${requestId}] Async event failed`, { err })
     );
@@ -189,7 +503,7 @@ export const searchJobsByCompany = async (req, res) => {
       return res.status(HTTP_STATUS.BAD_REQUEST).json(
         new CustomError({
           success: false,
-          message: 'Search query is required',
+          message: "Search query is required",
           statusCode: HTTP_STATUS.BAD_REQUEST,
         })
       );
@@ -197,22 +511,22 @@ export const searchJobsByCompany = async (req, res) => {
 
     // Perform text search on company name (assume companyName field in Job)
     const jobs = await Job.find({
-      companyName: { $regex: value.query, $options: 'i' },
-      status: 'active',
+      companyName: { $regex: value.query, $options: "i" },
+      status: "active",
       isDeleted: false,
-      'dates.expires': { $gt: new Date() },
+      "dates.expires": { $gt: new Date() },
     })
       .limit(parseInt(value.limit))
       .exec();
 
     const total = await Job.countDocuments({
-      companyName: { $regex: value.query, $options: 'i' },
-      status: 'active',
+      companyName: { $regex: value.query, $options: "i" },
+      status: "active",
       isDeleted: false,
       "dates.expires": { $gt: new Date() },
     });
 
-    await redisClient.zIncrBy('trending:searches', 1, value.query);
+    await redisClient.zIncrBy("trending:searches", 1, value.query);
 
     if (userId) {
       await redisClient.lPush(
@@ -330,7 +644,7 @@ export const searchJobsBySkills = async (req, res) => {
       "dates.expires": { $gt: new Date() },
     });
 
-    await redisClient.zIncrBy('trending:searches', 1, value.skills.join(", "));
+    await redisClient.zIncrBy("trending:searches", 1, value.skills.join(", "));
 
     if (userId) {
       await redisClient.lPush(
@@ -439,7 +753,7 @@ export const searchJobsByKeyword = async (req, res) => {
       "dates.expires": { $gt: new Date() },
     });
 
-    await redisClient.zIncrBy('trending:searches', 1, value.query);
+    await redisClient.zIncrBy("trending:searches", 1, value.query);
 
     if (userId) {
       await redisClient.lPush(
@@ -512,152 +826,85 @@ export const getAutoCompleteSuggestions = async (req, res) => {
   const requestId = uuidv4();
   const startTime = Date.now();
   const userId = req.user?.id;
-  const { query, type = "keyword", limit = 10 } = req.query;
+  const { query, type = "mixed", limit = 15 } = req.query;
 
   try {
-    const sanitizedInput = sanitizeInput({ query, limit });
-    const { error, value } = validateSearchInput({
-      ...sanitizedInput,
-      page: 1,
-    });
-    if (error) {
+    if (!query || query.length < 1) {
       return res.status(HTTP_STATUS.BAD_REQUEST).json(
         new CustomError({
           success: false,
-          message: `Validation error: ${error.message}`,
+          message: "Query parameter is required",
           statusCode: HTTP_STATUS.BAD_REQUEST,
-          details: error,
         })
       );
     }
 
-    // Check Redis cache for suggestions
-    const cacheKey = `autocomplete:${type}:${value.query}`;
-    const cachedSuggestions = await redisClient.get(cacheKey);
-    if (cachedSuggestions) {
-      logger.info(`[${requestId}] Autocomplete suggestions from cache`, {
+    // Check cache
+    const cacheKey = `autocomplete:enhanced:${type}:${query}:${limit}`;
+    let suggestions = await CacheManager.getMultiLevel(cacheKey, userId);
+
+    if (suggestions) {
+      logger.info(`[${requestId}] Enhanced autocomplete from cache`, {
         userId,
-        query: value.query,
+        query,
         type,
         duration: Date.now() - startTime,
       });
       return res.status(HTTP_STATUS.OK).json(
         new CustomSuccess({
           message: SUCCESS_MESSAGES.AUTOCOMPLETE_RETRIEVED,
-          data: { suggestions: JSON.parse(cachedSuggestions) },
+          data: suggestions,
         })
       );
     }
 
-    let suggestions = [];
-    if (type === "title") {
-      suggestions = await Job.aggregate([
-        {
-          $match: {
-            $text: { $search: value.query },
-            status: "active",
-            isDeleted: false,
-            "dates.expires": { $gt: new Date() },
-          },
-        },
-        { $group: { _id: "$title", count: { $sum: 1 } } },
-        { $sort: { count: -1 } },
-        { $limit: parseInt(value.limit) },
-        { $project: { _id: 0, value: "$_id" } },
-      ]);
-    } else if (type === "company") {
-      suggestions = await Job.aggregate([
-        {
-          $match: {
-            $text: { $search: value.query },
-            status: "active",
-            isDeleted: false,
-            "dates.expires": { $gt: new Date() },
-          },
-        },
-        { $group: { _id: "$companyName", count: { $sum: 1 } } },
-        { $sort: { count: -1 } },
-        { $limit: parseInt(value.limit) },
-        { $project: { _id: 0, value: "$_id" } },
-      ]);
-    } else if (type === "skills") {
-      suggestions = await Job.aggregate([
-        {
-          $match: {
-            "skills.name": { $regex: value.query, $options: "i" },
-            status: "active",
-            isDeleted: false,
-            "dates.expires": { $gt: new Date() },
-          },
-        },
-        { $unwind: "$skills" },
-        { $group: { _id: "$skills.name", count: { $sum: 1 } } },
-        { $sort: { count: -1 } },
-        { $limit: parseInt(value.limit) },
-        { $project: { _id: 0, value: "$_id" } },
-      ]);
-    } else {
-      suggestions = await Job.aggregate([
-        {
-          $match: {
-            $text: { $search: value.query },
-            status: "active",
-            isDeleted: false,
-            "dates.expires": { $gt: new Date() },
-          },
-        },
-        {
-          $project: {
-            terms: {
-              $concatArrays: ["$title", "$skills.name", ["$companyName"]],
-            },
-          },
-        },
-        { $unwind: "$terms" },
-        { $group: { _id: "$terms", count: { $sum: 1 } } },
-        { $sort: { count: -1 } },
-        { $limit: parseInt(value.limit) },
-        { $project: { _id: 0, value: "$_id" } },
-      ]);
+    // Get user profile for personalization
+    let userProfile = null;
+    if (userId) {
+      userProfile = await PersonalizationEngine.getUserProfile(userId);
     }
 
-    const suggestionValues = suggestions.map((s) => s.value);
-    await redisClient.set(
-      cacheKey,
-      JSON.stringify(suggestionValues),
-      "EX",
-      3600
-    ); // Cache for 1 hour
-
-    await redisClient.zIncrBy('trending:searches', 1, value.query);
-
-    JobEventService.emit("analytics:autocomplete", {
-      userId,
+    // Generate enhanced suggestions
+    suggestions = await this.generateEnhancedSuggestions(
+      query,
       type,
-      query: value.query,
-      suggestionCount: suggestionValues.length,
-      metadata: { ip: req.ip, userAgent: req.headers["user-agent"] },
-    }).catch((err) =>
-      logger.error(`[${requestId}] Async event failed`, { err })
+      userProfile,
+      parseInt(limit)
     );
 
-    logger.info(`[${requestId}] Autocomplete suggestions retrieved`, {
+    // Cache suggestions
+    await CacheManager.setMultiLevel(cacheKey, suggestions, userId);
+
+    // Track autocomplete usage
+    AnalyticsProcessor.addEvent({
       userId,
-      query: value.query,
+      type: "autocomplete",
+      query,
+      suggestionType: type,
+      suggestionCount: suggestions.suggestions?.length || 0,
+      metadata: {
+        ip: req.ip,
+        userAgent: req.headers["user-agent"],
+      },
+    });
+
+    logger.info(`[${requestId}] Enhanced autocomplete completed`, {
+      userId,
+      query,
       type,
-      count: suggestionValues.length,
+      count: suggestions.suggestions?.length,
       duration: Date.now() - startTime,
     });
 
     return res.status(HTTP_STATUS.OK).json(
       new CustomSuccess({
         message: SUCCESS_MESSAGES.AUTOCOMPLETE_RETRIEVED,
-        data: { suggestions: suggestionValues },
+        data: suggestions,
       })
     );
   } catch (error) {
     logger.error(
-      `[${requestId}] Failed to retrieve autocomplete suggestions: ${error.message}`,
+      `[${requestId}] Enhanced autocomplete failed: ${error.message}`,
       {
         userId,
         query,
@@ -666,11 +913,13 @@ export const getAutoCompleteSuggestions = async (req, res) => {
         duration: Date.now() - startTime,
       }
     );
+
     return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(
       new CustomError({
         success: false,
         message: ERROR_MESSAGES.INTERNAL_SERVER_ERROR,
-        error: error.message,
+        error:
+          process.env.NODE_ENV === "development" ? error.message : undefined,
       })
     );
   }
@@ -741,7 +990,6 @@ export const searchJobsByLocation = async (req, res) => {
   const { query, limit = 20 } = req.query;
 
   try {
-
     const sanitizedInput = sanitizeInput({ query, limit });
     const { error, value } = validateSearchInput(sanitizedInput);
     if (error) {
@@ -756,23 +1004,23 @@ export const searchJobsByLocation = async (req, res) => {
     }
 
     const jobs = await Job.find({
-      location: { $regex: value.query, $options: 'i' },
-      status: 'active',
+      location: { $regex: value.query, $options: "i" },
+      status: "active",
       isDeleted: false,
-      'dates.expires': { $gt: new Date() },
+      "dates.expires": { $gt: new Date() },
     })
       .limit(parseInt(value.limit))
       .exec();
 
     // Increment score for the location query in trending:searches
-    await redisClient.zIncrBy('trending:searches', 1, value.query);
+    await redisClient.zIncrBy("trending:searches", 1, value.query);
 
     // Store search in Redis for recent searches (if authenticated)
     if (userId) {
       await redisClient.lPush(
         `recent:searches:${userId}`,
         JSON.stringify({
-          type: 'location',
+          type: "location",
           query: value.query,
           timestamp: new Date().toISOString(),
         })
@@ -781,12 +1029,12 @@ export const searchJobsByLocation = async (req, res) => {
     }
 
     // Emit search event for Kafka
-    JobEventService.emit('analytics:search', {
+    JobEventService.emit("analytics:search", {
       userId,
-      type: 'location',
+      type: "location",
       query: value.query,
       resultCount: jobs.length,
-      metadata: { ip: req.ip, userAgent: req.headers['user-agent'] },
+      metadata: { ip: req.ip, userAgent: req.headers["user-agent"] },
     }).catch((err) =>
       logger.error(`[${requestId}] Async event failed`, { err })
     );
@@ -1030,7 +1278,7 @@ export const getTrendingSearches = async (req, res) => {
 
     // Fetch trending searches from Redis sorted set 'trending:searches'
     const trending = await redisClient.zRangeWithScores(
-      'trending:searches',
+      "trending:searches",
       0,
       parseInt(sanitizedInput.limit) - 1,
       { REV: true } // Reverse to get highest scores first
@@ -1042,12 +1290,12 @@ export const getTrendingSearches = async (req, res) => {
     }));
 
     // Emit Kafka event for analytics
-    JobEventService.emit('analytics:trending', {
+    JobEventService.emit("analytics:trending", {
       userId,
-      type: 'trending',
+      type: "trending",
       queries: formattedTrending.map((item) => item.query),
       resultCount: formattedTrending.length,
-      metadata: { ip: req.ip, userAgent: req.headers['user-agent'] },
+      metadata: { ip: req.ip, userAgent: req.headers["user-agent"] },
     }).catch((err) =>
       logger.error(`[${requestId}] Async trending event failed`, { err })
     );
@@ -1095,7 +1343,7 @@ export const getSavedSearches = async (req, res) => {
     return res.status(HTTP_STATUS.UNAUTHORIZED).json(
       new CustomError({
         success: false,
-        message: 'Authentication required',
+        message: "Authentication required",
         statusCode: HTTP_STATUS.UNAUTHORIZED,
       })
     );
@@ -1111,16 +1359,20 @@ export const getSavedSearches = async (req, res) => {
     const sanitizedInput = sanitizeInput({ limit });
 
     // Fetch saved searches from Redis list 'saved:searches:userId'
-    const saved = await redisClient.lRange(`saved:searches:${userId}`, 0, parseInt(sanitizedInput.limit) - 1);
+    const saved = await redisClient.lRange(
+      `saved:searches:${userId}`,
+      0,
+      parseInt(sanitizedInput.limit) - 1
+    );
     const parsedSaved = saved.map((item) => JSON.parse(item));
 
     // Emit Kafka event for analytics
-    JobEventService.emit('analytics:saved_searches', {
+    JobEventService.emit("analytics:saved_searches", {
       userId,
-      type: 'saved_searches',
+      type: "saved_searches",
       queries: parsedSaved.map((item) => item.query),
       resultCount: parsedSaved.length,
-      metadata: { ip: req.ip, userAgent: req.headers['user-agent'] },
+      metadata: { ip: req.ip, userAgent: req.headers["user-agent"] },
     }).catch((err) =>
       logger.error(`[${requestId}] Async saved searches event failed`, { err })
     );
@@ -1377,183 +1629,269 @@ export const getSearchHistory = async (req, res) => {
   const requestId = uuidv4();
   const startTime = Date.now();
   const userId = req.user?.id;
+  const { period = "30d", limit = 50 } = req.query;
 
   if (!userId) {
     return res.status(HTTP_STATUS.UNAUTHORIZED).json(
       new CustomError({
         success: false,
-        message: "Authentication required",
+        message: "Authentication required for search history",
         statusCode: HTTP_STATUS.UNAUTHORIZED,
       })
     );
   }
 
   try {
-    // Assuming history in Redis list 'history:searches:userId' (populated similarly but with longer trim, e.g., 99)
-    const history = await redisClient.lRange(
-      `history:searches:${userId}`,
-      0,
-      -1
-    );
-    const parsedHistory = history.map((item) => JSON.parse(item));
+    // Check cache
+    const cacheKey = `search:history:${userId}:${period}:${limit}`;
+    let analysis = await CacheManager.getMultiLevel(cacheKey, userId);
 
-    logger.info(`[${requestId}] Search history retrieved`, {
+    if (analysis) {
+      logger.info(`[${requestId}] Search history from cache`, {
+        userId,
+        period,
+        limit,
+        duration: Date.now() - startTime,
+      });
+      return res.status(HTTP_STATUS.OK).json(
+        new CustomSuccess({
+          message: "Search history analysis retrieved successfully",
+          data: analysis,
+        })
+      );
+    }
+
+    // Calculate date range
+    const periodDays = { "7d": 7, "30d": 30, "90d": 90, "365d": 365 };
+    const days = periodDays[period] || 30;
+    const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+    // Get search history
+    const searchHistory = await SearchHistory.find({
       userId,
-      count: parsedHistory.length,
+      createdAt: { $gte: startDate },
+    })
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit))
+      .lean();
+
+    // Analyze search patterns
+    analysis = await this.analyzeSearchHistory(searchHistory, userId);
+    analysis.metadata = {
+      period,
+      totalSearches: searchHistory.length,
+      analyzedAt: new Date(),
+      dateRange: { start: startDate, end: new Date() },
+    };
+
+    // Cache the analysis
+    await CacheManager.setMultiLevel(cacheKey, analysis, userId);
+
+    logger.info(`[${requestId}] Search history analysis completed`, {
+      userId,
+      period,
+      searchCount: searchHistory.length,
       duration: Date.now() - startTime,
     });
 
     return res.status(HTTP_STATUS.OK).json(
       new CustomSuccess({
-        message: SUCCESS_MESSAGES.HISTORY_RETRIEVED,
-        data: { history: parsedHistory },
+        message: "Search history analysis retrieved successfully",
+        data: analysis,
       })
     );
   } catch (error) {
     logger.error(
-      `[${requestId}] Failed to get search history: ${error.message}`,
+      `[${requestId}] Search history analysis failed: ${error.message}`,
       {
         userId,
+        period,
         error: error.stack,
         duration: Date.now() - startTime,
       }
     );
+
     return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(
       new CustomError({
         success: false,
         message: ERROR_MESSAGES.INTERNAL_SERVER_ERROR,
-        error: error.message,
+        error:
+          process.env.NODE_ENV === "development" ? error.message : undefined,
       })
     );
   }
 };
 
-// GET /jobs/search/similar - Search similar jobs based on a jobId
-// Controller: Searches for similar jobs
+// GET /jobs/similar/:jobId - Similar job suggestions
 export const searchSimilarJobs = async (req, res) => {
   const requestId = uuidv4();
   const startTime = Date.now();
   const userId = req.user?.id;
-  const { jobId, page = 1, limit = 20 } = req.query;
+  const { jobId } = req.params;
+  const { limit = 10 } = req.query;
 
   try {
-    const sanitizedInput = sanitizeInput({ jobId, page, limit });
-    // Assume validateSearchInput handles jobId as string
-    const { error, value } = validateSearchInput(sanitizedInput);
-    if (error) {
+    // Validate jobId
+    if (!jobId || !ObjectId.isValid(jobId)) {
       return res.status(HTTP_STATUS.BAD_REQUEST).json(
         new CustomError({
           success: false,
-          message: `Validation error: ${error.message}`,
+          message: "Valid job ID is required",
           statusCode: HTTP_STATUS.BAD_REQUEST,
-          details: error,
         })
       );
     }
 
-    const baseJob = await Job.findOne({
-      jobId: value.jobId,
-      status: "active",
-      isDeleted: false,
-    });
-    if (!baseJob) {
+    // Check cache
+    const cacheKey = `similar:${jobId}:${limit}`;
+    let similarJobs = await CacheManager.getMultiLevel(cacheKey);
+
+    if (similarJobs) {
+      logger.info(`[${requestId}] Similar jobs from cache`, {
+        userId,
+        jobId,
+        limit,
+        duration: Date.now() - startTime,
+      });
+      return res.status(HTTP_STATUS.OK).json(
+        new CustomSuccess({
+          message: "Similar jobs retrieved successfully",
+          data: similarJobs,
+        })
+      );
+    }
+
+    // Get the reference job
+    const referenceJob = await Job.findById(jobId)
+      .select(
+        "title skills location companyName jobType experienceLevel salary"
+      )
+      .lean();
+
+    if (!referenceJob) {
       return res.status(HTTP_STATUS.NOT_FOUND).json(
         new CustomError({
           success: false,
-          message: ERROR_MESSAGES.JOBS_NOT_FOUND,
+          message: "Job not found",
           statusCode: HTTP_STATUS.NOT_FOUND,
         })
       );
     }
 
-    // Find similar by title text search or skills match (assume skills is array)
-    const jobs = await Job.find({
-      $or: [
-        { $text: { $search: baseJob.title } },
-        { skills: { $in: baseJob.skills } },
-      ],
-      jobId: { $ne: value.jobId },
+    // Find similar jobs using content-based similarity
+    const similarJobsQuery = {
+      _id: { $ne: new ObjectId(jobId) },
       status: "active",
       isDeleted: false,
       "dates.expires": { $gt: new Date() },
-    })
-      .select("jobId title companyId location jobType createdAt")
-      .sort({ score: { $meta: "textScore" } })
-      .skip((parseInt(value.page) - 1) * parseInt(value.limit))
-      .limit(parseInt(value.limit))
-      .lean();
+    };
 
-    const total = await Job.countDocuments({
-      $or: [
-        { $text: { $search: baseJob.title } },
-        { skills: { $in: baseJob.skills } },
-      ],
-      jobId: { $ne: value.jobId },
-      status: "active",
-      isDeleted: false,
-      "dates.expires": { $gt: new Date() },
-    });
+    // Add similarity filters
+    const orConditions = [];
 
-    if (userId) {
-      await redisClient.lPush(
-        `recent:searches:${userId}`,
-        JSON.stringify({
-          type: "similar",
-          jobId: value.jobId,
-          timestamp: new Date().toISOString(),
-        })
-      );
-      await redisClient.lTrim(`recent:searches:${userId}`, 0, 9);
+    // Similar skills
+    if (referenceJob.skills?.length) {
+      orConditions.push({
+        "skills.name": { $in: referenceJob.skills.map((s) => s.name) },
+      });
     }
 
-    JobEventService.emit("analytics:search", {
-      userId,
-      type: "similar",
-      jobId: value.jobId,
-      resultCount: jobs.length,
-      metadata: { ip: req.ip, userAgent: req.headers["user-agent"] },
-    }).catch((err) =>
-      logger.error(`[${requestId}] Async event failed`, { err })
-    );
+    // Same job type
+    if (referenceJob.jobType) {
+      orConditions.push({ jobType: referenceJob.jobType });
+    }
 
-    logger.info(`[${requestId}] Similar jobs search completed`, {
+    // Same location
+    if (referenceJob.location?.city) {
+      orConditions.push({ "location.city": referenceJob.location.city });
+    }
+
+    // Same company (for other positions)
+    if (referenceJob.companyName) {
+      orConditions.push({ companyName: referenceJob.companyName });
+    }
+
+    if (orConditions.length > 0) {
+      similarJobsQuery.$or = orConditions;
+    }
+
+    const jobs = await Job.find(similarJobsQuery)
+      .select(
+        "jobId title companyName location salary jobType skills dates.posted remote experienceLevel"
+      )
+      .sort({ "dates.posted": -1 })
+      .limit(parseInt(limit) * 2) // Get more for better similarity scoring
+      .lean();
+
+    // Calculate similarity scores
+    const jobsWithScores = jobs.map((job) => ({
+      ...job,
+      similarityScore: this.calculateSimilarityScore(referenceJob, job),
+    }));
+
+    // Sort by similarity score and take top results
+    const sortedJobs = jobsWithScores
+      .sort((a, b) => b.similarityScore - a.similarityScore)
+      .slice(0, parseInt(limit));
+
+    const result = {
+      referenceJob: {
+        jobId: referenceJob._id,
+        title: referenceJob.title,
+        companyName: referenceJob.companyName,
+      },
+      similarJobs: sortedJobs,
+      metadata: {
+        totalFound: jobs.length,
+        algorithm: "content_based_similarity",
+        generatedAt: new Date(),
+      },
+    };
+
+    // Cache the result
+    await CacheManager.setMultiLevel(cacheKey, result);
+
+    // Track similar jobs view
+    if (userId) {
+      AnalyticsProcessor.addEvent({
+        userId,
+        type: "similar_jobs_view",
+        referenceJobId: jobId,
+        count: sortedJobs.length,
+        metadata: {
+          ip: req.ip,
+          userAgent: req.headers["user-agent"],
+        },
+      });
+    }
+
+    logger.info(`[${requestId}] Similar jobs retrieved`, {
       userId,
-      jobId: value.jobId,
-      count: jobs.length,
-      page: value.page,
-      limit: value.limit,
+      jobId,
+      count: sortedJobs.length,
       duration: Date.now() - startTime,
     });
 
     return res.status(HTTP_STATUS.OK).json(
       new CustomSuccess({
-        message: SUCCESS_MESSAGES.JOBS_RETRIEVED,
-        data: {
-          jobs,
-          pagination: {
-            page: parseInt(value.page),
-            limit: parseInt(value.limit),
-            total,
-            totalPages: Math.ceil(total / parseInt(value.limit)),
-          },
-        },
+        message: "Similar jobs retrieved successfully",
+        data: result,
       })
     );
   } catch (error) {
-    logger.error(
-      `[${requestId}] Failed to search similar jobs: ${error.message}`,
-      {
-        userId,
-        jobId,
-        error: error.stack,
-        duration: Date.now() - startTime,
-      }
-    );
+    logger.error(`[${requestId}] Similar jobs failed: ${error.message}`, {
+      userId,
+      jobId,
+      error: error.stack,
+      duration: Date.now() - startTime,
+    });
+
     return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(
       new CustomError({
         success: false,
         message: ERROR_MESSAGES.INTERNAL_SERVER_ERROR,
-        error: error.message,
+        error:
+          process.env.NODE_ENV === "development" ? error.message : undefined,
       })
     );
   }
@@ -1661,6 +1999,655 @@ export const searchJobsExactPhrase = async (req, res) => {
         success: false,
         message: ERROR_MESSAGES.INTERNAL_SERVER_ERROR,
         error: error.message,
+      })
+    );
+  }
+};
+
+// POST /jobs/bulk-search
+// Controller: Performs bulk job search for admin/batch operations
+export const bulkSearchJobs = async (req, res) => {
+  const requestId = uuidv4();
+  const startTime = Date.now();
+  const userId = req.user?.id;
+  const isAdmin = req.user?.role === "admin";
+  const { queries, filters = {}, limit = 1000 } = req.body;
+
+  // Rate limiting for admin bulk operations
+  if (!isAdmin) {
+    return res.status(HTTP_STATUS.FORBIDDEN).json(
+      new CustomError({
+        success: false,
+        message: "Bulk search is restricted to admin users.",
+        statusCode: HTTP_STATUS.FORBIDDEN,
+      })
+    );
+  }
+
+  try {
+    // Input validation
+    if (!Array.isArray(queries) || queries.length === 0) {
+      return res.status(HTTP_STATUS.BAD_REQUEST).json(
+        new CustomError({
+          success: false,
+          message: "Queries array is required for bulk search.",
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+        })
+      );
+    }
+    if (queries.length > 1000) {
+      return res.status(HTTP_STATUS.BAD_REQUEST).json(
+        new CustomError({
+          success: false,
+          message: "Bulk search limited to 1000 queries per request.",
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+        })
+      );
+    }
+
+    // Sanitize input
+    const sanitizedQueries = queries.map(q => sanitizeInput(q));
+    const sanitizedFilters = sanitizeInput(filters);
+
+    // Check Redis cache for batch results
+    const cacheKey = `bulksearch:${JSON.stringify(sanitizedQueries)}:${JSON.stringify(sanitizedFilters)}:${limit}`;
+    let cachedResults = await redisClient.get(cacheKey);
+    if (cachedResults) {
+      logger.info(`[${requestId}] Bulk search from cache`, {
+        userId,
+        queries: sanitizedQueries.length,
+        filters: sanitizedFilters,
+        duration: Date.now() - startTime,
+      });
+      return res.status(HTTP_STATUS.OK).json(
+        new CustomSuccess({
+          message: "Bulk search results retrieved from cache.",
+          data: JSON.parse(cachedResults),
+        })
+      );
+    }
+
+    // MongoDB aggregation for batch search
+    const aggregationPipeline = [
+      {
+        $match: {
+          $or: sanitizedQueries.map(q => ({
+            $text: { $search: q }
+          })),
+          ...sanitizedFilters,
+          status: "active",
+          isDeleted: false,
+          "dates.expires": { $gt: new Date() }
+        }
+      },
+      {
+        $project: {
+          jobId: 1,
+          title: 1,
+          companyName: 1,
+          location: 1,
+          jobType: 1,
+          skills: 1,
+          createdAt: 1,
+          score: { $meta: "textScore" }
+        }
+      },
+      { $sort: { score: -1, createdAt: -1 } },
+      { $limit: parseInt(limit) }
+    ];
+
+    const jobs = await Job.aggregate(aggregationPipeline);
+
+    // Cache results in Redis for 10 minutes
+    await redisClient.set(cacheKey, JSON.stringify(jobs), { EX: 600 });
+
+    // Emit Kafka event for analytics
+    JobEventService.emit("analytics:bulk_search", {
+      userId,
+      queries: sanitizedQueries,
+      filters: sanitizedFilters,
+      resultCount: jobs.length,
+      metadata: { ip: req.ip, userAgent: req.headers["user-agent"] },
+    }).catch(err => logger.error(`[${requestId}] Bulk search analytics failed`, { err }));
+
+    logger.info(`[${requestId}] Bulk search completed`, {
+      userId,
+      queries: sanitizedQueries.length,
+      filters: sanitizedFilters,
+      count: jobs.length,
+      duration: Date.now() - startTime,
+    });
+
+    return res.status(HTTP_STATUS.OK).json(
+      new CustomSuccess({
+        message: "Bulk search completed successfully.",
+        data: { jobs, total: jobs.length },
+      })
+    );
+  } catch (error) {
+    logger.error(`[${requestId}] Bulk search failed: ${error.message}`, {
+      userId,
+      error: error.stack,
+      duration: Date.now() - startTime,
+    });
+    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(
+      new CustomError({
+        success: false,
+        message: "Bulk search failed due to server error.",
+        error: error.message,
+      })
+    );
+  }
+};
+
+// *UNIFIED RECENTLY VIEWED JOBS CONTROLLER* (Advanced with personalization, facets, pagination)
+export const getRecentlyViewedJobs = async (req, res) => {
+  const requestId = uuidv4();
+  const startTime = Date.now();
+  const userId = req.user?.id;
+
+  try {
+    // *INPUT VALIDATION*
+    const sanitizedInput = sanitizeInput(req.query);
+    const { error, value } = validateRecentlyViewedInput({
+      ...sanitizedInput,
+      userId,
+    });
+    if (error) {
+      logger.warn(`[${requestId}] Validation failed`, {
+        userId,
+        errors: error.details,
+        input: sanitizedInput,
+      });
+      return res.status(HTTP_STATUS.BAD_REQUEST).json(
+        new CustomError({
+          success: false,
+          message: `Validation error: ${error.details
+            .map((d) => d.message)
+            .join(", ")}`,
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+          details: error.details,
+        })
+      );
+    }
+
+    // *PERSONALIZATION*
+    let userProfile = null;
+    if (userId) {
+      userProfile = await PersonalizationEngine.getUserProfile(userId);
+    }
+
+    // *CACHE KEY GENERATION*
+    const cacheKey = `jobs:recently_viewed:${Buffer.from(
+      JSON.stringify({
+        ...value,
+        userId: userId || "anonymous",
+      })
+    )
+      .toString("base64")
+      .slice(0, 200)}`;
+
+    // *CACHE CHECK WITH FALLBACK*
+    let cachedResults;
+    try {
+      cachedResults = await redisClient.get(cacheKey);
+    } catch (redisErr) {
+      logger.warn(
+        `[${requestId}] Redis cache error - falling back to no cache`,
+        { error: redisErr.message }
+      );
+      cachedResults = null;
+    }
+    if (cachedResults) {
+      const parsedResults = JSON.parse(cachedResults);
+      logger.info(`[${requestId}] Cache hit for recently viewed jobs`, {
+        userId,
+        cacheKey: cacheKey.slice(0, 50) + "...",
+        resultCount: parsedResults.data?.jobs?.length || 0,
+        duration: Date.now() - startTime,
+      });
+      return res.status(HTTP_STATUS.OK).json(parsedResults);
+    }
+
+    // *QUERY BUILDING*
+    const query = buildRecentlyViewedQuery(value, userProfile);
+    const sortOptions = getSortOptions(value.sortBy, value.sortOrder);
+
+    // *AGGREGATION PIPELINE FOR PERFORMANCE* (Includes facets for job types, locations, etc.)
+    const aggregationPipeline = [
+      { $match: query },
+      {
+        $lookup: {
+          from: "jobs",
+          localField: "entityId",
+          foreignField: "_id",
+          as: "job",
+          pipeline: [
+            {
+              $project: {
+                title: 1,
+                companyId: 1,
+                location: 1,
+                jobType: 1,
+                salary: 1,
+                skills: 1,
+                features: 1,
+                benefits: 1,
+              },
+            },
+          ],
+        },
+      },
+      { $unwind: "$job" },
+      { $replaceRoot: { newRoot: "$job" } },
+      {
+        $facet: {
+          jobs: [
+            { $sort: sortOptions },
+            { $skip: (value.page - 1) * value.limit },
+            { $limit: value.limit },
+            {
+              $project: {
+                title: 1,
+                companyId: 1,
+                location: 1,
+                jobType: 1,
+                salary: 1,
+                skills: { $slice: ["$skills", 5] },
+                features: 1,
+                benefits: { $slice: ["$benefits", 3] },
+              },
+            },
+          ],
+          totalCount: [{ $count: "count" }],
+          facets: [
+            {
+              $group: {
+                _id: null,
+                jobTypes: { $addToSet: "$jobType" },
+                locations: { $addToSet: "$location.city" },
+                industries: { $addToSet: "$industry" },
+              },
+            },
+          ],
+        },
+      },
+    ];
+
+    // *EXECUTE AGGREGATION WITH TIMEOUT HANDLING*
+    const [results] = await UserActivity.aggregate(aggregationPipeline).option({
+      maxTimeMS: 30000,
+    });
+
+    const jobs = results.jobs || [];
+    const totalCount = results.totalCount[0]?.count || 0;
+    const facets = results.facets[0] || {};
+
+    // Integrate SearchVectorService for vector-based personalization if needed
+    if (userProfile?.vectorEmbeddings) {
+      // Example: Re-rank jobs using vector similarity (assuming SearchVectorService handles this)
+      const reRankedJobs = await SearchVectorService.reRankJobs(
+        jobs,
+        userProfile.vectorEmbeddings
+      );
+      jobs = reRankedJobs.slice(0, value.limit); // Update jobs with re-ranked
+    }
+
+    // *RESPONSE CONSTRUCTION*
+    const response = new CustomSuccess({
+      message: SUCCESS_MESSAGES.JOBS_RETRIEVED,
+      data: {
+        jobs,
+        pagination: {
+          page: value.page,
+          limit: value.limit,
+          total: totalCount,
+          totalPages: Math.ceil(totalCount / value.limit),
+          hasNext: value.page < Math.ceil(totalCount / value.limit),
+          hasPrev: value.page > 1,
+        },
+        facets: {
+          jobTypes: facets.jobTypes || [],
+          locations: (facets.locations || []).filter(Boolean).slice(0, 20),
+          industries: facets.industries || [],
+        },
+        meta: {
+          resultsFound: totalCount,
+          searchTime: Date.now() - startTime,
+          sortedBy: value.sortBy,
+          cached: false,
+          userProfileApplied: !!userProfile,
+        },
+      },
+    });
+
+    // *CACHE THE RESULTS WITH ERROR HANDLING*
+    const cacheExpiry = 600; // 10min
+    try {
+      await redisClient.set(
+        cacheKey,
+        JSON.stringify(response),
+        "EX",
+        cacheExpiry
+      );
+    } catch (redisErr) {
+      logger.warn(`[${requestId}] Failed to set cache`, {
+        error: redisErr.message,
+      });
+    }
+
+    // *ANALYTICS EVENT (ASYNC)* using SearchEventService (Kafka)
+    SearchEventService.emit("analytics:recently_viewed", {
+      userId,
+      resultCount: jobs.length,
+      totalResults: totalCount,
+      searchTime: Date.now() - startTime,
+      page: value.page,
+      metadata: {
+        ip: req.ip,
+        userAgent: req.headers["user-agent"],
+        cached: false,
+      },
+    }).catch((err) =>
+      logger.error(`[${requestId}] Analytics event failed`, {
+        error: err.message,
+      })
+    );
+
+    // Integrate SearchStatsService for stats update
+    await SearchStatsService.updateStats({
+      type: "recently_viewed",
+      count: jobs.length,
+      userId,
+    });
+
+    // *SUCCESS LOG*
+    logger.info(`[${requestId}] Recently viewed jobs completed successfully`, {
+      userId,
+      resultCount: jobs.length,
+      totalResults: totalCount,
+      page: value.page,
+      duration: Date.now() - startTime,
+      cached: false,
+    });
+
+    return res.status(HTTP_STATUS.OK).json(response);
+  } catch (error) {
+    logger.error(
+      `[${requestId}] Recently viewed jobs failed: ${error.message}`,
+      {
+        userId,
+        error: error.stack,
+        query: req.query,
+        duration: Date.now() - startTime,
+      }
+    );
+
+    // Monitor index health with SearchIndexMonitoringService
+    SearchIndexMonitoringService.reportError({
+      error,
+      context: "recently_viewed",
+    });
+
+    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(
+      new CustomError({
+        success: false,
+        message: ERROR_MESSAGES.INTERNAL_SERVER_ERROR,
+        error:
+          process.env.NODE_ENV === "development" ? error.message : undefined,
+        requestId,
+      })
+    );
+  }
+};
+
+// *UNIFIED OFFLINE JOB VIEWING CONTROLLER* (Advanced with personalization, facets, pagination)
+export const getOfflineJobs = async (req, res) => {
+  const requestId = uuidv4();
+  const startTime = Date.now();
+  const userId = req.user?.id;
+
+  try {
+    // *INPUT VALIDATION*
+    const sanitizedInput = sanitizeInput(req.query);
+    const { error, value } = validateOfflineJobsInput({
+      ...sanitizedInput,
+      userId,
+    });
+    if (error) {
+      logger.warn(`[${requestId}] Validation failed`, {
+        userId,
+        errors: error.details,
+        input: sanitizedInput,
+      });
+      return res.status(HTTP_STATUS.BAD_REQUEST).json(
+        new CustomError({
+          success: false,
+          message: `Validation error: ${error.details
+            .map((d) => d.message)
+            .join(", ")}`,
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+          details: error.details,
+        })
+      );
+    }
+
+    // *PERSONALIZATION*
+    let userProfile = null;
+    if (userId) {
+      userProfile = await PersonalizationEngine.getUserProfile(userId);
+    }
+
+    // *CACHE KEY GENERATION*
+    const cacheKey = `jobs:offline:${Buffer.from(
+      JSON.stringify({
+        ...value,
+        userId: userId || "anonymous",
+      })
+    )
+      .toString("base64")
+      .slice(0, 200)}`;
+
+    // *CACHE CHECK WITH FALLBACK*
+    let cachedResults;
+    try {
+      cachedResults = await redisClient.get(cacheKey);
+    } catch (redisErr) {
+      logger.warn(
+        `[${requestId}] Redis cache error - falling back to no cache`,
+        { error: redisErr.message }
+      );
+      cachedResults = null;
+    }
+    if (cachedResults) {
+      const parsedResults = JSON.parse(cachedResults);
+      logger.info(`[${requestId}] Cache hit for offline jobs`, {
+        userId,
+        cacheKey: cacheKey.slice(0, 50) + "...",
+        resultCount: parsedResults.data?.jobs?.length || 0,
+        duration: Date.now() - startTime,
+      });
+      return res.status(HTTP_STATUS.OK).json(parsedResults);
+    }
+
+    // *QUERY BUILDING*
+    let query = {
+      status: "active",
+      isDeleted: false,
+      "dates.expires": { $gt: new Date() },
+      offlineAvailable: true,
+    };
+    if (userProfile?.preferences?.locations) {
+      query["location.city"] = { $in: userProfile.preferences.locations };
+    }
+    const sortOptions = getSortOptions(value.sortBy, value.sortOrder);
+
+    // *AGGREGATION PIPELINE FOR PERFORMANCE*
+    const aggregationPipeline = [
+      { $match: query },
+      {
+        $lookup: {
+          from: "companies",
+          localField: "companyId",
+          foreignField: "_id",
+          as: "companyDetails",
+          pipeline: [{ $project: { name: 1, logo: 1, rating: 1 } }],
+        },
+      },
+      { $addFields: { company: { $arrayElemAt: ["$companyDetails", 0] } } },
+      {
+        $facet: {
+          jobs: [
+            { $sort: sortOptions },
+            { $skip: (value.page - 1) * value.limit },
+            { $limit: value.limit },
+            {
+              $project: {
+                title: 1,
+                companyId: 1,
+                "company.name": 1,
+                "company.logo": 1,
+                location: 1,
+                jobType: 1,
+                salary: 1,
+                skills: { $slice: ["$skills", 5] },
+                features: 1,
+                benefits: { $slice: ["$benefits", 3] },
+              },
+            },
+          ],
+          totalCount: [{ $count: "count" }],
+          facets: [
+            {
+              $group: {
+                _id: null,
+                jobTypes: { $addToSet: "$jobType" },
+                locations: { $addToSet: "$location.city" },
+                benefits: { $addToSet: "$benefits" },
+              },
+            },
+          ],
+        },
+      },
+    ];
+
+    // *EXECUTE AGGREGATION WITH TIMEOUT HANDLING*
+    const [results] = await Job.aggregate(aggregationPipeline).option({
+      maxTimeMS: 30000,
+    });
+
+    let jobs = results.jobs || [];
+    const totalCount = results.totalCount[0]?.count || 0;
+    const facets = results.facets[0] || {};
+
+    // Use SearchMaintenanceService to check if any maintenance affects offline jobs
+    const maintenanceStatus = await SearchMaintenanceService.getStatus(
+      "offline_jobs"
+    );
+    if (maintenanceStatus.active) {
+      jobs = []; // Or handle accordingly
+      logger.warn(`[${requestId}] Offline jobs under maintenance`);
+    }
+
+    // *RESPONSE CONSTRUCTION*
+    const response = new CustomSuccess({
+      message: SUCCESS_MESSAGES.JOBS_RETRIEVED,
+      data: {
+        jobs,
+        pagination: {
+          page: value.page,
+          limit: value.limit,
+          total: totalCount,
+          totalPages: Math.ceil(totalCount / value.limit),
+          hasNext: value.page < Math.ceil(totalCount / value.limit),
+          hasPrev: value.page > 1,
+        },
+        facets: {
+          jobTypes: facets.jobTypes || [],
+          locations: (facets.locations || []).filter(Boolean).slice(0, 20),
+          benefits: (facets.benefits || []).filter(Boolean).slice(0, 20),
+        },
+        meta: {
+          resultsFound: totalCount,
+          searchTime: Date.now() - startTime,
+          sortedBy: value.sortBy,
+          cached: false,
+          userProfileApplied: !!userProfile,
+        },
+      },
+    });
+
+    // *CACHE THE RESULTS WITH ERROR HANDLING*
+    const cacheExpiry = 600; // 10min
+    try {
+      await redisClient.set(
+        cacheKey,
+        JSON.stringify(response),
+        "EX",
+        cacheExpiry
+      );
+    } catch (redisErr) {
+      logger.warn(`[${requestId}] Failed to set cache`, {
+        error: redisErr.message,
+      });
+    }
+
+    // *ANALYTICS EVENT (ASYNC)*
+    SearchEventService.emit("analytics:offline_jobs", {
+      userId,
+      resultCount: jobs.length,
+      totalResults: totalCount,
+      searchTime: Date.now() - startTime,
+      page: value.page,
+      metadata: {
+        ip: req.ip,
+        userAgent: req.headers["user-agent"],
+        cached: false,
+      },
+    }).catch((err) =>
+      logger.error(`[${requestId}] Analytics event failed`, {
+        error: err.message,
+      })
+    );
+
+    // Update stats
+    await SearchStatsService.updateStats({
+      type: "offline_jobs",
+      count: jobs.length,
+      userId,
+    });
+
+    // *SUCCESS LOG*
+    logger.info(`[${requestId}] Offline jobs completed successfully`, {
+      userId,
+      resultCount: jobs.length,
+      totalResults: totalCount,
+      page: value.page,
+      duration: Date.now() - startTime,
+      cached: false,
+    });
+
+    return res.status(HTTP_STATUS.OK).json(response);
+  } catch (error) {
+    logger.error(`[${requestId}] Offline jobs failed: ${error.message}`, {
+      userId,
+      error: error.stack,
+      query: req.query,
+      duration: Date.now() - startTime,
+    });
+
+    SearchIndexMonitoringService.reportError({
+      error,
+      context: "offline_jobs",
+    });
+
+    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(
+      new CustomError({
+        success: false,
+        message: ERROR_MESSAGES.INTERNAL_SERVER_ERROR,
+        error:
+          process.env.NODE_ENV === "development" ? error.message : undefined,
+        requestId,
       })
     );
   }
