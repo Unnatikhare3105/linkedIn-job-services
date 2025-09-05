@@ -1,12 +1,6 @@
 import mongoose from "mongoose";
 import { v4 as uuidv4 } from "uuid";
-import promClient from "prom-client";
 import { schemaOperationLatency, schemaOperationErrors } from "../utils/metrics.js";
-
-// TTL configurations by type (in seconds)
-const CACHE_TTL = {
-
-};
 
 const qualityTrustSchema = new mongoose.Schema(
   {
@@ -24,44 +18,48 @@ const qualityTrustSchema = new mongoose.Schema(
       index: true,
     },
     companyId: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: String,
       ref: "Company",
       index: { sparse: true },
+      default: uuidv4,
       validate: {
         validator: function (v) {
-          return !v || mongoose.Types.ObjectId.isValid(v);
+          return /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
         },
         message: "Invalid companyId",
       },
     },
     jobId: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: String,
       ref: "Job",
       index: { sparse: true },
+      default: uuidv4,
       validate: {
         validator: function (v) {
-          return !v || mongoose.Types.ObjectId.isValid(v);
+          return /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
         },
         message: "Invalid jobId",
       },
     },
     userId: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: String,
       ref: "User",
       index: { sparse: true },
+      default: uuidv4,
       validate: {
         validator: function (v) {
-          return !v || mongoose.Types.ObjectId.isValid(v);
+          return /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
         },
         message: "Invalid userId",
       },
     },
     verifiedBy: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: String,
       ref: "User",
+
       validate: {
         validator: function (v) {
-          return !v || mongoose.Types.ObjectId.isValid(v);
+          return !v || /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
         },
         message: "Invalid verifiedBy",
       },

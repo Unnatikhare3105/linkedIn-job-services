@@ -2,7 +2,6 @@ import { v4 as uuidv4 } from "uuid";
 import logger from "../utils/logger.js";
 import CustomError from "../utils/CustomError.js";
 import CustomSuccess from "../utils/CustomSuccess.js";
-import JobApplication from "../model/jobApplication.model.js";
 import { StatsService, JobEventHandler } from "../model/job.model.js";
 import redisClient from "../config/redis.js";
 import { sanitizeInput } from "../utils/security.js";
@@ -19,8 +18,8 @@ import {
   ERROR_MESSAGES,
   SUCCESS_MESSAGES,
 } from "../constants/http.js";
-import {PersonalizationEngine} from "./model/searchHistory.model.js"; // For user profile personalization
-import Job from "../model/Job";
+import {PersonalizationEngine} from "../model/searchHistory.model.js"; // For user profile personalization
+import Job from "../model/job.model.js";
 // import UserActivity from "../models/UserActivity";
 import {
   SearchEventService,

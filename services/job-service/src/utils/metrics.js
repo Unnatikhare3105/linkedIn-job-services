@@ -1,4 +1,5 @@
 import promClient from "prom-client";
+import * as prometheus from 'prom-client';
 
 // Prometheus metrics
 
@@ -57,4 +58,29 @@ const schemaOperationErrors = new promClient.Counter({
   name: "quality_trust_schema_operation_errors_total",
   help: "Total errors in QualityTrust schema operations",
   labelNames: ["operation"],
+});
+
+
+export const searchDuration = new prometheus.Histogram({
+  name: 'search_duration_seconds',
+  help: 'Search request duration in seconds',
+  labelNames: ['search_type', 'status', 'user_type'],
+  buckets: [0.1, 0.5, 1, 2, 5]
+});
+
+export const searchRequests = new prometheus.Counter({
+  name: 'search_requests_total',
+  help: 'Total number of search requests',
+  labelNames: ['search_type', 'status']
+});
+
+export const activeSearches = new prometheus.Gauge({
+  name: 'active_searches_total',
+  help: 'Number of currently active search requests'
+});
+
+export const cacheHits = new prometheus.Counter({
+  name: 'cache_hits_total',
+  help: 'Total cache hits',
+  labelNames: ['cache_type']
 });

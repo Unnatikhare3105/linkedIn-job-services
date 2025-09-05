@@ -11,14 +11,14 @@ import {
 } from "../constants/http.js";
 import CustomError from "../utils/CustomError.js";
 import CustomSuccess from "../utils/CustomSuccess.js";
-import Job from "../models/Job.js";
-import Company from "../models/Company.js";
-import SavedSearch from "../models/SavedSearch.js"; // Assume this model exists; create if not
+import Job from "../model/job.model.js";
+import Company from "../model/company.model.js";
+// import SavedSearch from "../models/SavedSearch.js"; // Assume this model exists; create if not
 import { JobEventService, StatsService } from "../model/job.model.js";
 import redisClient from "../config/redis.js";
-import { sanitizeInput } from "../utils/security.js.js";
+import { sanitizeInput } from "../utils/security.js";
 import { PersonalizationEngine } from "../model/searchHistory.model.js"; // Assume from your previous code
-import booleanParser from "boolean-parser-js";
+import booleanParser from "boolean-parser";
 import {
   validateCompleteFilterInput,
   buildOptimizedQuery,

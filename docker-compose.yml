@@ -4,10 +4,14 @@ services:
       context: ./services/job-service
       dockerfile: Dockerfile
     depends_on:
-      - mongodb
-      - redis
-      - zookeeper
-      - kafka
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      zookeeper:
+        condition: service_healthy
     environment:
       - MONGO_URI=mongodb://mongodb:27017/jobdb
       - REDIS_HOST=redis
@@ -75,6 +79,12 @@ services:
       - "2888:2888"
       - "3888:3888"
       # Remove the 8080 port line
+    healthcheck:
+      test: ["CMD-SHELL", "echo ruok | nc localhost 2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     volumes:
       - zookeeper-data:/var/lib/zookeeper/data
       - zookeeper-logs:/var/lib/zookeeper/log
@@ -110,6 +120,12 @@ services:
     ports:
       - "9092:9092"
       - "29092:29092"
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
     volumes:
       - kafka-data:/var/lib/kafka/data
     networks:
@@ -132,3 +148,9 @@ volumes:
     name: linkedinjobservices_zookeeper_data
   zookeeper-logs:
     name: linkedinjobservices_zookeeper_logs
+
+# deploy:
+#   resources:
+#     limits:
+#       memory: 512M
+#       cpus: '0.5'

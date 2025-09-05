@@ -2,7 +2,7 @@ import { v4 as uuidv4 } from "uuid";
 import logger from "../utils/logger.js";
 import CustomError from "../utils/CustomError.js";
 import CustomSuccess from "../utils/CustomSuccess.js";
-import Company, { CompanyEventService, CompanyVectorService } from "../model/Company.js";
+import Company, { CompanyEventService, CompanyVectorService } from "../model/company.model.js";
 import UserActivity from "../models/UserActivity.js";
 import redisClient from "../config/redis.js";
 import { sanitizeInput } from "../utils/security.js";

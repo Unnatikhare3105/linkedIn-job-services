@@ -11,7 +11,7 @@ import dotenv from 'dotenv';
 import { Configuration, OpenAIApi } from "openai";
 dotenv.config();
 const { Pinecone } = pkg;
-import * as prometheus from 'prom-client';
+import {searchDuration, searchRequests, activeSearches, cacheHits} from '../utils/metrics.js';
 const searchHistorySchema = new mongoose.Schema(
   {
     // Primary identifier - UUID v4 format
@@ -767,30 +767,6 @@ export {
   SearchMaintenanceService,
 };
 export default SearchHistory;
-
-export const searchDuration = new prometheus.Histogram({
-  name: 'search_duration_seconds',
-  help: 'Search request duration in seconds',
-  labelNames: ['search_type', 'status', 'user_type'],
-  buckets: [0.1, 0.5, 1, 2, 5]
-});
-
-export const searchRequests = new prometheus.Counter({
-  name: 'search_requests_total',
-  help: 'Total number of search requests',
-  labelNames: ['search_type', 'status']
-});
-
-export const activeSearches = new prometheus.Gauge({
-  name: 'active_searches_total',
-  help: 'Number of currently active search requests'
-});
-
-export const cacheHits = new prometheus.Counter({
-  name: 'cache_hits_total',
-  help: 'Total cache hits',
-  labelNames: ['cache_type']
-});
 
 ////////////////////////////////////////////////////////
 export class CacheManager {

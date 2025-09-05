@@ -5,7 +5,7 @@ import {
   ERROR_MESSAGES,
   SUCCESS_MESSAGES,
 } from "../constants/http.js";
-import CustomError from "../`utils/CustomError.js`;";
+import CustomError from "../utils/CustomError.js`;";
 import CustomSuccess from "../utils/CustomSuccess.js";
 import Job, { JobEventService } from "../model/job.model.js";
 import redisClient from "../config/redis.js";
