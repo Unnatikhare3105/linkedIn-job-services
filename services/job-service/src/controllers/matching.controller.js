@@ -1,12 +1,11 @@
-import { v4 as uuidv4 } from "uuid";
 import logger from "../utils/logger.js";
-import CustomError from "../utils/CustomError.js";
-import CustomSuccess from "../utils/CustomSuccess.js";
+import CustomError from "../utils/customError.js";
+import CustomSuccess from "../utils/customSuccess.js";
 import Job, { JobEventService } from "../model/job.model.js";
-import Company, { CompanyEventService, CompanyVectorService } from "../model/Company.js";
-import UserActivity from "../models/UserActivity.js";
+import Company, { CompanyEventService, CompanyVectorService } from "../model/company.model.js";
+import UserActivity from "../model/userInteraction.model.js"
 import redisClient from "../config/redis.js";
-import { sanitizeInput } from "../utils/security.js";
+import { sanitizeInput, generateSecureId } from "../utils/security.js";
 import * as MatchingService from "../services/matching.services.js";
 import {
   SearchStatsService,
@@ -19,23 +18,20 @@ import {
   validateUserProfile,
   validatePaginationParams,
   validateMatchingParams
-} from "../validations/matching.validations.js";
+} from "../validations/company.validation.js";
 import {
   HTTP_STATUS,
   ERROR_MESSAGES,
   SUCCESS_MESSAGES,
-} from "../constants/http.js";
-import SearchHistory, {
-  searchDuration,
-  searchRequests,
-  activeSearches,
+} from "../constants/messages.js";
+import SearchModel, {
   CacheManager,
   PersonalizationEngine
-} from "../model/searchHistory.model.js";
-import { createClient } from 'redis'; // For distributed locking
+} from "../model/search.model.js";
+import { searchDuration, searchRequests, activeSearches, cacheHits } from "../utils/metrics.js";
 import { GoogleGenerativeAI } from '@google/generative-ai'; // For Gemini AI
 import dotenv from 'dotenv';
-import {CACHE_TTL} from "../config/cache.ttl.js";
+import {CACHE_TTL} from "../constants/cache.js";
 import {RATE_LIMITS} from "../config/rate.limiter.js";
 import { withLock, withRetry } from "../utils/withLocks.js";
 dotenv.config();
@@ -48,7 +44,7 @@ dotenv.config();
  * @param {Function} next - Express next middleware function
  */
 export const calculateMatchScoreController = async (req, res, next) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
 
   try {
@@ -123,7 +119,7 @@ export const calculateMatchScoreController = async (req, res, next) => {
 
     const enhancedResult = {
       ...result,
-      matchId: uuidv4(),
+      matchId: generateSecureId(),
       calculatedAt: new Date().toISOString(),
       version: '2.1',
       requestId,
@@ -139,7 +135,7 @@ export const calculateMatchScoreController = async (req, res, next) => {
     setImmediate(async () => {
       try {
         await UserActivity.create({
-          activityId: uuidv4(),
+          activityId: generateSecureId(),
           userId,
           activityType: 'MATCH_CALCULATION',
           metadata: {
@@ -193,7 +189,7 @@ export const calculateMatchScoreController = async (req, res, next) => {
  * @param {Function} next - Express next middleware function
  */
 export const getRecommendedJobsController = async (req, res, next) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
 
   try {
@@ -305,7 +301,7 @@ export const getRecommendedJobsController = async (req, res, next) => {
     const response = {
       jobs: recommendations.jobs.map(job => ({
         ...job,
-        viewId: uuidv4(),
+        viewId: generateSecureId(),
         recommendationReason: job.matchExplanation,
         similarityScore: job.matchScore,
         trending: job.trendingScore > 0.7
@@ -343,8 +339,8 @@ export const getRecommendedJobsController = async (req, res, next) => {
 
     setImmediate(async () => {
       try {
-        await SearchHistory.create({
-          searchId: uuidv4(),
+        await SearchModel.create({
+          searchId: generateSecureId(),
           userId,
           searchType: 'RECOMMENDATION',
           filters: sanitizedFilters,
@@ -395,14 +391,8 @@ export const getRecommendedJobsController = async (req, res, next) => {
   }
 };
 
-/**
- * Get recently posted jobs with real-time updates and trending analysis
- * @param {Object} req - Express request object
- * @param {Object} res - Express response object
- * @param {Function} next - Express next middleware function
- */
 export const getRecentlyPostedJobsController = async (req, res, next) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
 
   try {
@@ -473,7 +463,7 @@ export const getRecentlyPostedJobsController = async (req, res, next) => {
     const response = {
       jobs: result.jobs.map(job => ({
         ...job,
-        viewId: uuidv4(),
+        viewId: generateSecureId(),
         postedAgo: RecommendationUtils.formatTimeAgo(job.postedAt),
         trending: job.trendingScore > 0.6,
         urgency: job.urgencyScore,
@@ -530,14 +520,9 @@ export const getRecentlyPostedJobsController = async (req, res, next) => {
   }
 };
 
-/**
- * Get jobs expiring soon with priority alerts and smart notifications
- * @param {Object} req - Express request object
- * @param {Object} res - Express response object
- * @param {Function} next - Express next middleware function
- */
+
 export const getExpiringSoonJobsController = async (req, res, next) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
 
   try {
@@ -595,7 +580,7 @@ export const getExpiringSoonJobsController = async (req, res, next) => {
     const response = {
       jobs: result.jobs.map(job => ({
         ...job,
-        viewId: uuidv4(),
+        viewId: generateSecureId(),
         timeRemaining: RecommendationUtils.formatTimeRemaining(job.expiresAt),
         priorityLevel: job.priorityScore > 0.8 ? 'high' : job.priorityScore > 0.5 ? 'medium' : 'low',
         actionRequired: job.timeToExpiry < 24 * 60 * 60 * 1000,
@@ -643,14 +628,8 @@ export const getExpiringSoonJobsController = async (req, res, next) => {
   }
 };
 
-/**
- * Send invitation to apply with multi-channel delivery (email, SMS, in-app)
- * @param {Object} req - Express request object
- * @param {Object} res - Express response object
- * @param {Function} next - Express next middleware function
- */
 export const sendInvitationToApplyController = async (req, res, next) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
 
   try {
@@ -749,7 +728,7 @@ export const sendInvitationToApplyController = async (req, res, next) => {
       }
 
       const invitationData = {
-        invitationId: uuidv4(),
+        invitationId: generateSecureId(),
         userProfile: req.body,
         jobId: sanitizedData.jobId,
         companyId: sanitizedData.companyId,
@@ -815,7 +794,7 @@ export const sendInvitationToApplyController = async (req, res, next) => {
     setImmediate(async () => {
       try {
         await UserActivity.create({
-          activityId: uuidv4(),
+          activityId: generateSecureId(),
           userId: sanitizedData.userId,
           activityType: "INVITATION_SENT",
           metadata: {
@@ -895,7 +874,7 @@ export const sendInvitationToApplyController = async (req, res, next) => {
  * @param {Function} next - Express next middleware function
  */
 export const inAppMessagingController = async (req, res, next) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
 
   try {
@@ -921,7 +900,7 @@ export const inAppMessagingController = async (req, res, next) => {
       recruiterId: sanitizeInput(recruiterId),
       message: message ? sanitizeInput(message) : undefined,
       jobId: jobId ? sanitizeInput(jobId) : undefined,
-      conversationId: conversationId ? sanitizeInput(conversationId) : uuidv4(),
+      conversationId: conversationId ? sanitizeInput(conversationId) : generateSecureId(),
     };
 
     if (req.method === "POST") {
@@ -936,7 +915,7 @@ export const inAppMessagingController = async (req, res, next) => {
         }
 
         const messageData = {
-          messageId: uuidv4(),
+          messageId: generateSecureId(),
           conversationId: sanitizedData.conversationId,
           senderId: sanitizedData.userId,
           receiverId: sanitizedData.recruiterId,
@@ -957,7 +936,7 @@ export const inAppMessagingController = async (req, res, next) => {
         setImmediate(async () => {
           try {
             await UserActivity.create({
-              activityId: uuidv4(),
+              activityId: generateSecureId(),
               userId: sanitizedData.userId,
               activityType: "IN_APP_MESSAGE_SENT",
               metadata: {
@@ -1066,7 +1045,7 @@ export const inAppMessagingController = async (req, res, next) => {
  * @param {Function} next - Express next middleware function
  */
 export const interviewSchedulingController = async (req, res, next) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
 
   try {
@@ -1118,7 +1097,7 @@ export const interviewSchedulingController = async (req, res, next) => {
       if (!company) throw new CustomError(HTTP_STATUS.NOT_FOUND, "Company not found", { requestId });
 
       const scheduleData = {
-        scheduleId: uuidv4(),
+        scheduleId: generateSecureId(),
         jobId: sanitizedData.jobId,
         userId: sanitizedData.userId,
         companyId: sanitizedData.companyId,
@@ -1150,7 +1129,7 @@ export const interviewSchedulingController = async (req, res, next) => {
       setImmediate(async () => {
         try {
           await UserActivity.create({
-            activityId: uuidv4(),
+            activityId: generateSecureId(),
             userId: sanitizedData.userId,
             activityType: "INTERVIEW_SCHEDULED",
             metadata: {
@@ -1211,7 +1190,7 @@ export const interviewSchedulingController = async (req, res, next) => {
  * @param {Function} next - Express next middleware function
  */
 export const recruiterContactController = async (req, res, next) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
 
   try {
@@ -1247,7 +1226,7 @@ export const recruiterContactController = async (req, res, next) => {
       }
 
       const contactData = {
-        contactId: uuidv4(),
+        contactId: generateSecureId(),
         userId: sanitizedData.userId,
         recruiterId: sanitizedData.recruiterId,
         jobId: sanitizedData.jobId,
@@ -1277,7 +1256,7 @@ export const recruiterContactController = async (req, res, next) => {
       setImmediate(async () => {
         try {
           await UserActivity.create({
-            activityId: uuidv4(),
+            activityId: generateSecureId(),
             userId: sanitizedData.userId,
             activityType: "RECRUITER_CONTACT_INITIATED",
             metadata: {
@@ -1337,7 +1316,7 @@ export const recruiterContactController = async (req, res, next) => {
  * @param {Function} next - Express next middleware function
  */
 export const interviewConfirmationController = async (req, res, next) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
 
   try {
@@ -1380,7 +1359,7 @@ export const interviewConfirmationController = async (req, res, next) => {
       }
 
       const confirmationData = {
-        confirmationId: uuidv4(),
+        confirmationId: generateSecureId(),
         scheduleId: sanitizedData.scheduleId,
         userId: sanitizedData.userId,
         jobId: schedule.jobId,
@@ -1407,7 +1386,7 @@ export const interviewConfirmationController = async (req, res, next) => {
       setImmediate(async () => {
         try {
           await UserActivity.create({
-            activityId: uuidv4(),
+            activityId: generateSecureId(),
             userId: sanitizedData.userId,
             activityType: "INTERVIEW_CONFIRMED",
             metadata: {

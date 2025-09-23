@@ -1,7 +1,7 @@
 import express from "express";
 const router = express.Router();
 import * as jobController from "../controllers/jobs.controller.js";
-import { authenticate } from "../auth.js";
+import { authenticate } from "../middlewares/auth.js";
 
 router.post("/create",
     authenticate,

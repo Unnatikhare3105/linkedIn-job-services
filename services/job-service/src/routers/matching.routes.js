@@ -1,7 +1,7 @@
 // GET /jobs/:id/match-score
 
 import express from "express";
-import {authenticate } from "../auth.js";
+import {authenticate } from "../middlewares/auth.js";
 import * as controllers from "../controllers/matching.controller.js";
 const router = express.Router();
 

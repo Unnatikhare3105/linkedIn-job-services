@@ -1,6 +1,6 @@
 import * as Controllers from "../controllers/jobApplication.controller.js";
 import express from "express";
-import { authenticate } from "../auth.js";
+import { authenticate } from "../middlewares/auth.js";
 
 const router = express.Router();
 

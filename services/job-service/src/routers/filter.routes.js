@@ -1,6 +1,6 @@
 import express from "express";
 const router = express.Router();
-import {authenticate} from "../auth.js"
+import {authenticate} from "../middlewares/auth.js"
 import * as controllers from "../controllers/filter.controllers.js";
 import { filterRateLimit } from "../config/rate.limiter.js";
 

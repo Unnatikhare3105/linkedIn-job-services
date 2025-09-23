@@ -1,6 +1,6 @@
 import express from "express";
 import * as controllers from "../controllers/qualityTrust.controller.js";
-import { authenticate } from "../auth.js";
+import { authenticate } from "../middlewares/auth.js";
 import {
   companyVerificationLimiter,
   jobSpamLimiter,

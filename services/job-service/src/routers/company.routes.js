@@ -1,6 +1,6 @@
 import express from "express";
 import * as controllers from "../controllers/company.controller.js";
-import { authenticate } from "../auth.js";
+import { authenticate } from "../middlewares/auth.js";
 const router = express.Router();
 
 // Public routes

@@ -1,6 +1,6 @@
 import express, { Router } from "express";
 const router = express.Router();
-import {authenticate } from "../auth.js";
+import {authenticate } from "../middlewares/auth.js";
 import * as sortController from "../controllers/sort.controller.js";
 import { sortRateLimit } from "../config/rate.limiter.js";
 
@@ -50,7 +50,7 @@ router.get(
     "/sort-performance",
     authenticate,
     sortRateLimit,
-    sortController.getSortPerformance
+    sortController.getSortPerformanceMetrics
 );
 
 

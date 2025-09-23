@@ -1,24 +1,22 @@
 import { v4 as uuidv4 } from "uuid";
 import logger from "../utils/logger.js"; // Adjust path as needed
-import { sanitizeInput } from "../utils/security.js"; // Adjust path as needed
+import { generateSecureId, sanitizeInput } from "../utils/security.js"; // Adjust path as needed
 import {
   HTTP_STATUS,
   SUCCESS_MESSAGES,
   ERROR_MESSAGES,
-} from "../constants/http.js";
-import CustomError from "../utils/CustomError.js";
-import CustomSuccess from "../utils/CustomSuccess.js";
+} from "../constants/messages.js";
+import CustomError from "../utils/customError.js"; // Adjust path as needed
+import CustomSuccess from "../utils/customSuccess.js"; // Adjust path as needed
 import redisClient from "../config/redis.js"; // Adjust path as needed
-import SearchHistory, {
-  SearchStatsService,
-  SearchEventService,
-} from "../model/searchHistory.model.js"; // Adjust path as needed
+import SearchModel from "../model/search.model.js"; // Adjust path as needed
 import { createSearchHistorySchema, updateSearchHistorySchema } from "../validations/searchHistory.validations.js";
+import { SearchStatsService, SearchEventService } from "../services/search.services.js";
 
 
 // Create a new search history entry
 export const createSearchHistory = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
   const userId = req.user?.id;
 
@@ -52,8 +50,8 @@ export const createSearchHistory = async (req, res) => {
       );
     }
 
-    const searchId = uuidv4();
-    const searchHistory = new SearchHistory({
+    const searchId = generateSecureId();
+    const searchHistory = new SearchModel({
       searchId,
       userId,
       query: value.query,
@@ -132,7 +130,7 @@ export const createSearchHistory = async (req, res) => {
 
 // Read a single search history by searchId
 export const getSearchHistoryById = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
   const userId = req.user?.id;
   const { searchId } = req.params;
@@ -148,7 +146,7 @@ export const getSearchHistoryById = async (req, res) => {
   }
 
   try {
-    const searchHistory = await SearchHistory.findOne({
+    const searchHistory = await SearchModel.findOne({
       searchId,
       userId,
       isDeleted: false,
@@ -201,7 +199,7 @@ export const getSearchHistoryById = async (req, res) => {
 
 // Read all search history for a user
 export const getUserSearchHistory = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
   const userId = req.user?.id;
   const { page = 1, limit = 20 } = req.query;
@@ -217,7 +215,7 @@ export const getUserSearchHistory = async (req, res) => {
   }
 
   try {
-    const searches = await SearchHistory.findUserSearches(userId, {
+    const searches = await SearchModel.findUserSearches(userId, {
       page: parseInt(page),
       limit: parseInt(limit),
     });
@@ -265,7 +263,7 @@ export const getUserSearchHistory = async (req, res) => {
 
 // Update a search history entry
 export const updateSearchHistory = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
   const userId = req.user?.id;
   const { searchId } = req.params;
@@ -300,7 +298,7 @@ export const updateSearchHistory = async (req, res) => {
       updatedAt: new Date(),
     };
 
-    const searchHistory = await SearchHistory.findOneAndUpdate(
+    const searchHistory = await SearchModel.findOneAndUpdate(
       { searchId, userId, isDeleted: false },
       { $set: updateData },
       { new: true, runValidators: true }
@@ -359,7 +357,7 @@ export const updateSearchHistory = async (req, res) => {
 
 // Soft delete a search history entry
 export const softDeleteSearchHistory = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
   const userId = req.user?.id;
   const { searchId } = req.params;
@@ -375,7 +373,7 @@ export const softDeleteSearchHistory = async (req, res) => {
   }
 
   try {
-    const searchHistory = await SearchHistory.findOneAndUpdate(
+    const searchHistory = await SearchModel.findOneAndUpdate(
       { searchId, userId, isDeleted: false },
       { $set: { isDeleted: true, updatedBy: userId, updatedAt: new Date() } },
       { new: true }
@@ -432,7 +430,7 @@ export const softDeleteSearchHistory = async (req, res) => {
 
 // Hard delete a search history entry (admin only)
 export const hardDeleteSearchHistory = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
   const userId = req.user?.id;
   const { searchId } = req.params;
@@ -451,7 +449,7 @@ export const hardDeleteSearchHistory = async (req, res) => {
   // if (!req.user.isAdmin) { ... }
 
   try {
-    const searchHistory = await SearchHistory.findOneAndDelete({
+    const searchHistory = await SearchModel.findOneAndDelete({
       searchId,
       userId,
     });

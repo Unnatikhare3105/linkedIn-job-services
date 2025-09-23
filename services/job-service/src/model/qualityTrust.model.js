@@ -1,12 +1,14 @@
 import mongoose from "mongoose";
 import { v4 as uuidv4 } from "uuid";
 import { schemaOperationLatency, schemaOperationErrors } from "../utils/metrics.js";
+import { CACHE_TTL } from "../constants/cache.js";
+import { generateSecureId } from "../utils/security.js";
 
 const qualityTrustSchema = new mongoose.Schema(
   {
     _id: {
       type: String,
-      default: () => uuidv4(),
+      default: () => generateSecureId(),
     },
     type: {
       type: String,
@@ -495,5 +497,7 @@ export const QualityTrustTypes = {
   STATUS_TYPES: ["pending", "verified", "rejected", "expired"],
   SALARY_PERIODS: ["hourly", "monthly", "yearly"],
 };
+
+const QualityTrust = mongoose.model("QualityTrust", qualityTrustSchema);
 
 export default QualityTrust;

@@ -5,49 +5,33 @@ import Job, {
   StatsService,
 } from "../model/job.model.js";
 import logger from "../utils/logger.js";
-import CustomError from "../utils/CustomError.js";
-import { sanitizeInput, sanitizeUserId } from "../utils/security.js";
+import CustomError from "../utils/customError.js";
+import { generateSecureId, sanitizeInput, sanitizeUserId } from "../utils/security.js";
 import {
   validateCreateJobInput,
   validateUpdateJobInput,
   validateListJobsFilters,
-} from "../utils/validators.js";
+} from "../validations/job.validations.js";
+import {
+  HTTP_STATUS,
+  ERROR_MESSAGES,
+  SUCCESS_MESSAGES,
+} from "../constants/messages.js";
+import { createSearchService } from '../config/elasticSearch.client.js';
+import { createCacheService } from './premium/analytics.service.js';
+import { JobSearchService } from "../services/premium/premium.service.js";
 
-// Constants for HTTP status codes
-const HTTP_STATUS = {
-  OK: 200,
-  CREATED: 201,
-  BAD_REQUEST: 400,
-  NOT_FOUND: 404,
-  FORBIDDEN: 403,
-  INTERNAL_SERVER_ERROR: 500,
-};
-
-// Constants for error messages
-const ERROR_MESSAGES = {
-  INVALID_INPUT: "Invalid input data",
-  JOB_NOT_FOUND: "Job not found",
-  FORBIDDEN: "User not authorized",
-  JOB_CREATION_FAILED: "Failed to create job",
-  JOB_UPDATE_FAILED: "Failed to update job",
-  JOB_DELETE_FAILED: "Failed to delete job",
-  JOB_LIST_FAILED: "Failed to list jobs",
-  FEATURED_JOBS_FAILED: "Failed to fetch featured jobs",
-};
 
 // Service: Creates a new job in the database
 export const createJob = async ({ userId, requestId, sanitizedInput }) => {
   try {
-    console.log("Service: Starting job creation");
-    console.log("Service: userId:", userId);
-    console.log("Service: requestId:", requestId);
 
     if (!sanitizedInput) {
       throw new Error("Job data is required");
     }
 
     // Generate job ID and prepare job data
-    const jobId = uuidv4();
+    const jobId = generateSecureId();
     console.log(`job idd uidd line 50 ${jobId}`)
     const createdBy = sanitizeUserId(userId); // Now handles prefix
     const jobData = {
@@ -64,12 +48,6 @@ export const createJob = async ({ userId, requestId, sanitizedInput }) => {
         conversionRate: 0,
       },
     };
-
-    console.log(
-      "4. Final jobData skills before create:",
-      typeof jobData.skills,
-      JSON.stringify(jobData.skills, null, 2)
-    );
 
     console.log("Service: About to create job in MongoDB");
 

@@ -1,156 +1,256 @@
+
 services:
   job-service:
-    build:
-      context: ./services/job-service
-      dockerfile: Dockerfile
-    depends_on:
-      mongodb:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
-      zookeeper:
-        condition: service_healthy
-    environment:
-      - MONGO_URI=mongodb://mongodb:27017/jobdb
-      - REDIS_HOST=redis
-      - KAFKA_BROKERS=kafka:9092
-      - ZOOKEEPER_CONNECT=zookeeper:2181
-      - PORT=3002
-      - KAFKAJS_NO_PARTITIONER_WARNING=1
+    context: .
+    build: ./services/job-service
     ports:
       - "3002:3002"
-    volumes:
-      - ./services/job-service/logs:/app/logs
-    networks:
-      - job-network
-    restart: on-failure
-    command: sh -c "sleep 30 && npm start" # Wait 30 seconds for all services to be ready
-
-  mongodb:
-    image: mongo:latest
-    container_name: mongodb
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongo-data:/data/db
-    networks:
-      - job-network
+    environment:
+      - PORT=3002
+      - MONGO_URI=mongodb://admin:password@mongo-primary:27017,mongo-secondary1:27017,mongo-secondary2:27017/?replicaSet=rs0
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - KAFKA_BROKERS=kafka-1:9092,kafka-2:9092,kafka-3:9092,kafka-4:9092
+      - JWT_SECRET=your_jwt_secret
+      - NODE_ENV=production
     healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
-      interval: 10s
-      timeout: 5s
+      test: ["CMD", "curl", "-f", "http://localhost:3002/health"]
+      interval: 1m30s
+      timeout: 30s
       retries: 5
       start_period: 30s
+    depends_on:
+      - mongo-primary
+      - mongo-secondary1
+      - mongo-secondary2
+      - redis
+      - kafka-1
+      - kafka-2
+      - kafka-3
+      - kafka-4
+    deploy:
+      replicas: 3
+      resources:
+        limits:
+          memory: 2G
+          cpus: "1.0"
+      restart_policy:
+        condition: on-failure
+        max_attempts: 3
+        window: 60s
+    networks:
+      - backend
 
+  # # AI Service for Skills Analysis and Career Path Generation
+  # ai-service:
+  #   image: tensorflow/tensorflow:latest-gpu
+  #   ports:
+  #     - "8000:8000"
+  #   environment:
+  #     - MODEL_PATH=/models
+  #     - BATCH_SIZE=128
+  #   volumes:
+  #     - ./ai-models:/models
+  #   deploy:
+  #     replicas: 4
+  #     resources:
+  #       limits:
+  #         memory: 8G
+  #         cpus: "4.0"
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: 1
+  #             capabilities: [gpu]
+  #     restart_policy:
+  #       condition: on-failure
+  #       max_attempts: 3
+
+  # MongoDB Replica Set
+  mongo-primary:
+    image: mongo:5.0
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=admin
+      - MONGO_INITDB_ROOT_PASSWORD=password
+    volumes:
+      - mongo-primary-data:/data/db
+      - ./mongo-keyfile:/mongo-keyfile
+      - ./mongo-init.js:/docker-entrypoint-initdb.d/init.js
+    command: mongod --replSet rs0 --bind_ip_all --keyFile /mongo-keyfile
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: "1.5"
+      restart_policy:
+        condition: on-failure
+        max_attempts: 3
+
+  mongo-secondary1:
+    image: mongo:5.0
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=admin
+      - MONGO_INITDB_ROOT_PASSWORD=password
+    volumes:
+      - mongo-secondary1-data:/data/db
+      - ./mongo-keyfile:/mongo-keyfile
+    command: mongod --replSet rs0 --bind_ip_all --keyFile /mongo-keyfile
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: "1.5"
+      restart_policy:
+        condition: on-failure
+        max_attempts: 3
+
+  mongo-secondary2:
+    image: mongo:5.0
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=admin
+      - MONGO_INITDB_ROOT_PASSWORD=password
+    volumes:
+      - mongo-secondary2-data:/data/db
+      - ./mongo-keyfile:/mongo-keyfile
+    command: mongod --replSet rs0 --bind_ip_all --keyFile /mongo-keyfile
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: "1.5"
+      restart_policy:
+        condition: on-failure
+        max_attempts: 3
+
+  # Redis Client
   redis:
-    image: redis:alpine
-    container_name: redis
-    command: ["redis-server", "--appendonly", "yes"]
+    image: redis:6.2
     ports:
       - "6379:6379"
     volumes:
       - redis-data:/data
-    networks:
-      - job-network
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          memory: 1G
+          cpus: "0.5"
+      restart_policy:
+        condition: on-failure
+        max_attempts: 3
 
-  zookeeper:
-    image: confluentinc/cp-zookeeper:7.5.0
-    container_name: zookeeper
+  # Kafka Cluster
+  kafka-1:
+    image: confluentinc/cp-kafka:7.3.0
     environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-      ZOOKEEPER_INIT_LIMIT: 5
-      ZOOKEEPER_SYNC_LIMIT: 2
-      ZOOKEEPER_SERVER_ID: 1
-      ZOOKEEPER_4LW_COMMANDS_WHITELIST: 'ruok,stat,srvr,cons'
-      ZOOKEEPER_AUTOPURGE_PURGE_INTERVAL: 24
-      ZOOKEEPER_AUTOPURGE_SNAP_RETAIN_COUNT: 3
-      ZOOKEEPER_MAX_CLIENT_CNXNS: 60
-    ports:
-      - "2181:2181"
-      - "2888:2888"
-      - "3888:3888"
-      # Remove the 8080 port line
-    healthcheck:
-      test: ["CMD-SHELL", "echo ruok | nc localhost 2181"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-    volumes:
-      - zookeeper-data:/var/lib/zookeeper/data
-      - zookeeper-logs:/var/lib/zookeeper/log
-    networks:
-      - job-network
-  kafka:
-    image: confluentinc/cp-kafka:7.5.0
-    container_name: kafka
+      - KAFKA_BROKER_ID=1
+      - KAFKA_ZOOKEEPER_CONNECT=zookeeper:2181
+      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka-1:9092
+      - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=3
+      - KAFKA_NUM_PARTITIONS=24
+      - KAFKA_DEFAULT_REPLICATION_FACTOR=3
+      - KAFKA_MIN_INSYNC_REPLICAS=2
+      - KAFKA_MESSAGE_MAX_BYTES=10485760
+      - KAFKA_COMPRESSION_TYPE=snappy
     depends_on:
       - zookeeper
-    environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
-      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
-      KAFKA_LOG_RETENTION_HOURS: 168
-      KAFKA_LOG_RETENTION_BYTES: 1073741824
-      KAFKA_LOG_SEGMENT_BYTES: 1073741824
-      KAFKA_LOG_DIRS: /var/lib/kafka/data
-      KAFKA_JMX_PORT: 9999
-      KAFKA_JMX_HOSTNAME: localhost
-      KAFKA_HEAP_OPTS: "-Xmx512M -Xms512M"
-      KAFKA_NUM_NETWORK_THREADS: 8
-      KAFKA_NUM_IO_THREADS: 8
-      KAFKA_SOCKET_SEND_BUFFER_BYTES: 102400
-      KAFKA_SOCKET_RECEIVE_BUFFER_BYTES: 102400
-      KAFKA_SOCKET_REQUEST_MAX_BYTES: 104857600
-    ports:
-      - "9092:9092"
-      - "29092:29092"
-    healthcheck:
-      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list"]
-      interval: 10s
-      timeout: 10s
-      retries: 5
-      start_period: 40s
-    volumes:
-      - kafka-data:/var/lib/kafka/data
-    networks:
-      - job-network
-    restart: on-failure
+    deploy:
+      resources:
+        limits:
+          memory: 3G
+          cpus: "1.5"
+      restart_policy:
+        condition: on-failure
+        max_attempts: 3
 
-networks:
-  job-network:
-    name: linkedinjobservices_job_network
-    driver: bridge
+  kafka-2:
+    image: confluentinc/cp-kafka:7.3.0
+    environment:
+      - KAFKA_BROKER_ID=2
+      - KAFKA_ZOOKEEPER_CONNECT=zookeeper:2181
+      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka-2:9092
+      - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=3
+      - KAFKA_NUM_PARTITIONS=24
+      - KAFKA_DEFAULT_REPLICATION_FACTOR=3
+      - KAFKA_MIN_INSYNC_REPLICAS=2
+      - KAFKA_MESSAGE_MAX_BYTES=10485760
+      - KAFKA_COMPRESSION_TYPE=snappy
+    depends_on:
+      - zookeeper
+    deploy:
+      resources:
+        limits:
+          memory: 3G
+          cpus: "1.5"
+      restart_policy:
+        condition: on-failure
+        max_attempts: 3
+
+  kafka-3:
+    image: confluentinc/cp-kafka:7.3.0
+    environment:
+      - KAFKA_BROKER_ID=3
+      - KAFKA_ZOOKEEPER_CONNECT=zookeeper:2181
+      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka-3:9092
+      - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=3
+      - KAFKA_NUM_PARTITIONS=24
+      - KAFKA_DEFAULT_REPLICATION_FACTOR=3
+      - KAFKA_MIN_INSYNC_REPLICAS=2
+      - KAFKA_MESSAGE_MAX_BYTES=10485760
+      - KAFKA_COMPRESSION_TYPE=snappy
+    depends_on:
+      - zookeeper
+    deploy:
+      resources:
+        limits:
+          memory: 3G
+          cpus: "1.5"
+      restart_policy:
+        condition: on-failure
+        max_attempts: 3
+
+  kafka-4:
+    image: confluentinc/cp-kafka:7.3.0
+    environment:
+      - KAFKA_BROKER_ID=4
+      - KAFKA_ZOOKEEPER_CONNECT=zookeeper:2181
+      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka-4:9092
+      - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=3
+      - KAFKA_NUM_PARTITIONS=24
+      - KAFKA_DEFAULT_REPLICATION_FACTOR=3
+      - KAFKA_MIN_INSYNC_REPLICAS=2
+      - KAFKA_MESSAGE_MAX_BYTES=10485760
+      - KAFKA_COMPRESSION_TYPE=snappy
+    depends_on:
+      - zookeeper
+    deploy:
+      resources:
+        limits:
+          memory: 3G
+          cpus: "1.5"
+      restart_policy:
+        condition: on-failure
+        max_attempts: 3
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.3.0
+    environment:
+      - ZOOKEEPER_CLIENT_PORT=2181
+      - ZOOKEEPER_TICK_TIME=2000
+      - ZOOKEEPER_MAX_CLIENT_CNXNS=1000
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "0.75"
+      restart_policy:
+        condition: on-failure
+        max_attempts: 3
 
 volumes:
-  mongo-data:
-    name: linkedinjobservices_mongo_data
+  mongo-primary-data:
+  mongo-secondary1-data:
+  mongo-secondary2-data:
   redis-data:
-    name: linkedinjobservices_redis_data
-  kafka-data:
-    name: linkedinjobservices_kafka_data
-  zookeeper-data:
-    name: linkedinjobservices_zookeeper_data
-  zookeeper-logs:
-    name: linkedinjobservices_zookeeper_logs
-
-# deploy:
-#   resources:
-#     limits:
-#       memory: 512M
-#       cpus: '0.5'

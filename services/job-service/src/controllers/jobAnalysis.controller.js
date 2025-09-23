@@ -2,20 +2,20 @@ import { v4 as uuidv4 } from "uuid";
 import logger from "../utils/logger.js";
 import CustomError from "../utils/CustomError.js";
 import CustomSuccess from "../utils/CustomSuccess.js";
-import JobAnalytics from "../model/jobAnalysis.model.js";
+import JobAnalytics from "../model/Insights.model.js";
 import { JobEventHandler, JobVectorService } from "../model/job.model.js";
 import redisClient from "../config/redis.js";
-import { sanitizeInput } from "../utils/security.js";
+import { generateSecureId, sanitizeInput } from "../utils/security.js";
 import {
   HTTP_STATUS,
   ERROR_MESSAGES,
   SUCCESS_MESSAGES,
-} from "../constants/http.js";
+} from "../constants/messages.js";
 
 // POST /jobs/:jobId/view - Increment job view count
 // Controller: Increments job view count (POST /jobs/:jobId/view)
 export const incrementView = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
   const { jobId } = req.params;
   const userId = req.user?.id; // From auth middleware
@@ -97,7 +97,7 @@ export const incrementView = async (req, res) => {
 // POST /jobs/:jobId/save - Increment job save count
 // Controller: Increments job save count (POST /jobs/:jobId/save)
 export const incrementSave = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
   const { jobId } = req.params;
   const userId = req.user?.id;
@@ -177,7 +177,7 @@ export const incrementSave = async (req, res) => {
 // GET /jobs/:jobId/analytics - Retrieve analytics for a job
 // Controller: Retrieves job analytics (GET /jobs/:jobId/analytics)
 export const getJobAnalytics = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
   const { jobId } = req.params;
   const userId = req.user?.id;

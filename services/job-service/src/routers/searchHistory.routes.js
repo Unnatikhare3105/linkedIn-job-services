@@ -1,7 +1,7 @@
 // src/routes/searchHistory.js
 import express from 'express';
 import * as controllers from '../controllers/searchHistory.controller.js';
-import { authenticate } from '../auth.js'; // Adjust path as needed
+import { authenticate } from '../middlewares/auth.js'; // Adjust path as needed
 
 const router = express.Router();
 

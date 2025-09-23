@@ -146,7 +146,6 @@ export const getSortOptions = (sortBy, sortOrder, userProfile, searchQuery) => {
   return sortOptions[sortBy] || sortOptions['relevance'];
 };
 
-
 // *HELPER FUNCTIONS*
 
 // Get performance hints for different sort types

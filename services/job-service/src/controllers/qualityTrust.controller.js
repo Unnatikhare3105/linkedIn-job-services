@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from "uuid";
 import { qualityTrustService } from "../services/qualityTrust.services.js";
-import { HTTP_STATUS, ERROR_MESSAGES, SUCCESS_MESSAGES } from "../constants/http.js";
+import { HTTP_STATUS, ERROR_MESSAGES, SUCCESS_MESSAGES } from "../constants/messages.js";
 import CustomError from "../utils/CustomError.js";
 import CustomSuccess from "../utils/CustomSuccess.js";
 import logger from "../utils/logger.js";
@@ -12,16 +12,16 @@ import {
   validateJobQuality,
 } from "../validations/qualityTrust.validations.js";
 import redisClient from "../config/redis.js";
-import { sanitizeInput } from "../utils/security.js";
+import { generateSecureId, sanitizeInput } from "../utils/security.js";
 import { requestCounter, requestLatency } from "../utils/metrics.js";
-import { CACHE_TTL } from "../config/qualityTrust.cache_ttl.config.js";
+import { CACHE_TTL } from "../constants/cache.js";
 import { RATE_LIMITS } from "../config/rate.limiter.js";
 import mongoose from "mongoose";
 import { withLock } from "../utils/withLocks.js";
 
 // Verify Company Controller
 export const verifyCompanyController = async (req, res, next) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
   const endpoint = "verify_company";
 
@@ -103,7 +103,7 @@ export const verifyCompanyController = async (req, res, next) => {
 
 // Check Job Spam Controller
 export const checkJobSpamController = async (req, res, next) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
   const endpoint = "check_job_spam";
 
@@ -180,7 +180,7 @@ export const checkJobSpamController = async (req, res, next) => {
 
 // Verify Salary Controller
 export const verifySalaryController = async (req, res, next) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
   const endpoint = "verify_salary";
 
@@ -264,7 +264,7 @@ export const verifySalaryController = async (req, res, next) => {
 
 // Check Duplicate Application Controller
 export const checkDuplicateApplicationController = async (req, res, next) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
   const endpoint = "duplicate_application";
 
@@ -344,7 +344,7 @@ export const checkDuplicateApplicationController = async (req, res, next) => {
 
 // Calculate Job Quality Controller
 export const calculateJobQualityController = async (req, res, next) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
   const endpoint = "job_quality";
 
@@ -420,7 +420,7 @@ export const calculateJobQualityController = async (req, res, next) => {
 
 // Get Company Verification Status Controller
 export const getCompanyVerificationController = async (req, res, next) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
   const endpoint = "get_company_verification";
 

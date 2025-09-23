@@ -1,6 +1,6 @@
 import express from 'express';
 const router = express.Router();
-import { authenticate } from "../auth.js"
+import { authenticate } from "../middlewares/auth.js"
 import * as searchRouter from "../controllers/search.controller.js";
 import { searchRateLimit, autocompleteRateLimit } from "../config/rate.limiter.js"
 

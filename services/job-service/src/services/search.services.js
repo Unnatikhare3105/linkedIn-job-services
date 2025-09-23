@@ -1,12 +1,16 @@
 import logger from "../utils/logger.js";
 import Job from "../model/job.model.js";
-import mongoose from "mongoose";
-import { kafkaProducer } from '../kafka/producer.js'; // Adjust path as needed
-import redisClient from '../config/redis.js'; // Adjust path as needed
 import pkg from '@pinecone-database/pinecone';
-import weaviate from 'weaviate-ts-client';
-import logger from '../utils/logger.js'; // Adjust path as needed
 import dotenv from 'dotenv';
+import { v4 as uuidv4 } from "uuid";
+import UserActivity from "../model/userInteraction.model.js";
+import JobApplication from "../model/jobApplication.model.js";
+import SearchModel from "../model/search.model.js";
+import redisClient from "../config/redis.js";
+import { publishJobEvent  } from "../config/kafka.js";
+import { searchRequests, activeSearches, cacheHits } from "../utils/metrics.js";
+import { generateSecureId } from "../utils/security.js";
+
 dotenv.config();
 const { Pinecone } = pkg;
 
@@ -333,7 +337,6 @@ export const getSortOptions = (sortBy = "createdAt", sortOrder = "desc") => ({
 });
 
 
-
 //////////////////////////////////////////////////////////////
 export class AdvancedSearchEngine {
   
@@ -577,12 +580,62 @@ export class AdvancedSearchEngine {
 }
 
 ///////////////////////////////////////////////////////////////
+// export class AnalyticsProcessor {
+//   static analyticsBuffer = [];
+// //   static readonly BUFFER_SIZE = 100;
+// //   static readonly FLUSH_INTERVAL = 10000; // 10 seconds
+//   static  BUFFER_SIZE = 100;
+//   static FLUSH_INTERVAL = 10000; // 10 seconds
+
+//   static init() {
+//     setInterval(() => this.flushAnalytics(), this.FLUSH_INTERVAL);
+//   }
+
+//   static addEvent(event) {
+//     this.analyticsBuffer.push({
+//       ...event,
+//       timestamp: new Date(),
+//       id: generateSecureId()
+//     });
+
+//     if (this.analyticsBuffer.length >= this.BUFFER_SIZE) {
+//       setImmediate(() => this.flushAnalytics());
+//     }
+//   }
+
+//   static async flushAnalytics() {
+//     if (this.analyticsBuffer.length === 0) return;
+
+//     const events = this.analyticsBuffer.splice(0);
+    
+//     try {
+//       // Batch insert to analytics database
+//       await SearchModel.insertMany(events.map(event => ({
+//         userId: event.userId,
+//         query: event.query,
+//         searchType: event.type,
+//         resultCount: event.resultCount,
+// metadata: event.metadata,
+//         createdAt: event.timestamp
+//       })));
+
+//       // Send to Kafka for real-time analytics
+//       JobEventService.emit('bulk:analytics', events)
+//         .catch(err => logger.error('Kafka bulk event failed', err));
+
+//     } catch (error) {
+//       logger.error('Analytics flush failed', error);
+//       // Re-add events to buffer for retry
+//       this.analyticsBuffer.unshift(...events);
+//     }
+//   }
+// }
+
+
 export class AnalyticsProcessor {
   static analyticsBuffer = [];
-//   static readonly BUFFER_SIZE = 100;
-//   static readonly FLUSH_INTERVAL = 10000; // 10 seconds
-  static  BUFFER_SIZE = 100;
-  static FLUSH_INTERVAL = 10000; // 10 seconds
+  static BUFFER_SIZE = 100;
+  static FLUSH_INTERVAL = 10000;
 
   static init() {
     setInterval(() => this.flushAnalytics(), this.FLUSH_INTERVAL);
@@ -592,7 +645,7 @@ export class AnalyticsProcessor {
     this.analyticsBuffer.push({
       ...event,
       timestamp: new Date(),
-      id: uuidv4()
+      id: generateSecureId()
     });
 
     if (this.analyticsBuffer.length >= this.BUFFER_SIZE) {
@@ -606,23 +659,18 @@ export class AnalyticsProcessor {
     const events = this.analyticsBuffer.splice(0);
     
     try {
-      // Batch insert to analytics database
-      await SearchHistory.insertMany(events.map(event => ({
+      await SearchModel.insertMany(events.map(event => ({
         userId: event.userId,
         query: event.query,
         searchType: event.type,
         resultCount: event.resultCount,
-metadata: event.metadata,
+        metadata: event.metadata,
         createdAt: event.timestamp
       })));
 
-      // Send to Kafka for real-time analytics
-      JobEventService.emit('bulk:analytics', events)
-        .catch(err => logger.error('Kafka bulk event failed', err));
-
+      await publishJobEvent('feature-usage-analytics', { events });
     } catch (error) {
       logger.error('Analytics flush failed', error);
-      // Re-add events to buffer for retry
       this.analyticsBuffer.unshift(...events);
     }
   }
@@ -632,6 +680,170 @@ metadata: event.metadata,
 AnalyticsProcessor.init();
 
 ///////////////////////////////////////////////////////
+// export class RecommendationEngine {
+//   static async generateRecommendations(userId, userProfile, type, limit) {
+//     const recommendations = {
+//       jobs: [],
+//       metadata: {
+//         type,
+//         generatedAt: new Date(),
+//         algorithms: []
+//       }
+//     };
+
+//     switch (type) {
+//       case 'skills':
+//         recommendations.jobs = await this.getSkillBasedRecommendations(userProfile, limit);
+//         recommendations.metadata.algorithms.push('content_based_skills');
+//         break;
+        
+//       case 'collaborative':
+//         recommendations.jobs = await this.getCollaborativeRecommendations(userId, userProfile, limit);
+//         recommendations.metadata.algorithms.push('collaborative_filtering');
+//         break;
+        
+//       case 'trending':
+//         recommendations.jobs = await this.getTrendingRecommendations(userProfile, limit);
+//         recommendations.metadata.algorithms.push('trending_analysis');
+//         break;
+        
+//       case 'mixed':
+//       default:
+//         const [skillBased, collaborative, trending] = await Promise.all([
+//           this.getSkillBasedRecommendations(userProfile, Math.ceil(limit * 0.5)),
+//           this.getCollaborativeRecommendations(userId, userProfile, Math.ceil(limit * 0.3)),
+//           this.getTrendingRecommendations(userProfile, Math.ceil(limit * 0.2))
+//         ]);
+        
+//         recommendations.jobs = this.mergeAndDedupe([...skillBased, ...collaborative, ...trending], limit);
+//         recommendations.metadata.algorithms.push('hybrid_mixed');
+//         break;
+//     }
+
+//     // Add recommendation scores
+//     recommendations.jobs = recommendations.jobs.map(job => ({
+//       ...job,
+//       recommendationScore: this.calculateRecommendationScore(job, userProfile, type),
+//       recommendationReason: this.generateRecommendationReason(job, userProfile)
+//     }));
+
+//     // Sort by recommendation score
+//     recommendations.jobs.sort((a, b) => b.recommendationScore - a.recommendationScore);
+
+//     return recommendations;
+//   }
+
+//   static async getSkillBasedRecommendations(userProfile, limit) {
+//     const skills = userProfile.behaviorScore?.topSkills || userProfile.skills || [];
+//     if (!skills.length) return [];
+
+//     const jobs = await Job.find({
+//       'skills.name': { $in: skills.map(s => new RegExp(s, 'i')) },
+//       status: 'active',
+//       isDeleted: false,
+//       'dates.expires': { $gt: new Date() }
+//     })
+//       .select('jobId title companyName location salary jobType skills dates.posted remote')
+//       .sort({ 'dates.posted': -1 })
+//       .limit(limit * 2) // Get more to allow for filtering
+//       .lean();
+
+//     return jobs.slice(0, limit);
+//   }
+
+//   static async getCollaborativeRecommendations(userId, userProfile, limit) {
+//     // Find users with similar behavior patterns
+//     const similarUsers = await this.findSimilarUsers(userId, userProfile);
+//     if (!similarUsers.length) return [];
+
+//     // Get jobs that similar users have applied to or viewed
+//     const similarUserIds = similarUsers.map(u => u.userId);
+//     const applications = await JobApplication.find({
+//       userId: { $in: similarUserIds },
+// createdAt: { $gte: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000) } // Last 90 days
+//     }).populate('jobId').lean();
+
+//     const jobIds = [...new Set(applications.map(app => app.jobId?._id).filter(Boolean))];
+    
+//     // Exclude jobs user has already applied to
+//     const userApplications = await JobApplication.find({ userId }).select('jobId').lean();
+//     const userJobIds = userApplications.map(app => app.jobId.toString());
+    
+//     const recommendedJobIds = jobIds.filter(jobId => !userJobIds.includes(jobId.toString()));
+
+//     const jobs = await Job.find({
+//       _id: { $in: recommendedJobIds },
+//       status: 'active',
+//       isDeleted: false,
+//       'dates.expires': { $gt: new Date() }
+//     })
+//       .select('jobId title companyName location salary jobType skills dates.posted remote')
+//       .limit(limit)
+//       .lean();
+
+//     return jobs;
+//   }
+
+//   static async getTrendingRecommendations(userProfile, limit) {
+//     // Get trending jobs based on application volume and recency
+//     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    
+//     const trendingJobs = await Job.aggregate([
+//       {
+//         $match: {
+//           status: 'active',
+//           isDeleted: false,
+//           'dates.expires': { $gt: new Date() },
+//           'dates.posted': { $gte: thirtyDaysAgo }
+//         }
+//       },
+//       {
+//         $lookup: {
+//           from: 'jobapplications',
+//           localField: '_id',
+//           foreignField: 'jobId',
+//           as: 'applications'
+//         }
+//       },
+//       {
+//         $addFields: {
+//           applicationCount: { $size: '$applications' },
+//           trendScore: {
+//             $add: [
+//               { $multiply: [{ $size: '$applications' }, 0.7] }, // Application weight
+//               { $multiply: [
+//                 { $divide: [
+//                   { $subtract: [new Date(), '$dates.posted'] },
+//                   86400000 // Convert to days
+//                 ]}, -0.3
+//               ]} // Recency weight (negative because newer = higher score)
+//             ]
+//           }
+//         }
+//       },
+//       { $sort: { trendScore: -1 } },
+//       { $limit: limit },
+//  {
+//         $project: {
+//           jobId: 1,
+//           title: 1,
+//           companyName: 1,
+//           location: 1,
+//           salary: 1,
+//           jobType: 1,
+//           skills: 1,
+//           'dates.posted': 1,
+//           remote: 1,
+//           trendScore: 1,
+//           applicationCount: 1
+//         }
+//       }
+//     ]);
+
+//     return trendingJobs;
+//   }
+// }
+
 export class RecommendationEngine {
   static async generateRecommendations(userId, userProfile, type, limit) {
     const recommendations = {
@@ -672,14 +884,12 @@ export class RecommendationEngine {
         break;
     }
 
-    // Add recommendation scores
     recommendations.jobs = recommendations.jobs.map(job => ({
       ...job,
       recommendationScore: this.calculateRecommendationScore(job, userProfile, type),
       recommendationReason: this.generateRecommendationReason(job, userProfile)
     }));
 
-    // Sort by recommendation score
     recommendations.jobs.sort((a, b) => b.recommendationScore - a.recommendationScore);
 
     return recommendations;
@@ -697,27 +907,24 @@ export class RecommendationEngine {
     })
       .select('jobId title companyName location salary jobType skills dates.posted remote')
       .sort({ 'dates.posted': -1 })
-      .limit(limit * 2) // Get more to allow for filtering
+      .limit(limit * 2)
       .lean();
 
     return jobs.slice(0, limit);
   }
 
   static async getCollaborativeRecommendations(userId, userProfile, limit) {
-    // Find users with similar behavior patterns
     const similarUsers = await this.findSimilarUsers(userId, userProfile);
     if (!similarUsers.length) return [];
 
-    // Get jobs that similar users have applied to or viewed
     const similarUserIds = similarUsers.map(u => u.userId);
     const applications = await JobApplication.find({
       userId: { $in: similarUserIds },
-createdAt: { $gte: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000) } // Last 90 days
+      createdAt: { $gte: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000) }
     }).populate('jobId').lean();
 
     const jobIds = [...new Set(applications.map(app => app.jobId?._id).filter(Boolean))];
     
-    // Exclude jobs user has already applied to
     const userApplications = await JobApplication.find({ userId }).select('jobId').lean();
     const userJobIds = userApplications.map(app => app.jobId.toString());
     
@@ -737,7 +944,6 @@ createdAt: { $gte: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000) } // Last 90 
   }
 
   static async getTrendingRecommendations(userProfile, limit) {
-    // Get trending jobs based on application volume and recency
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     
     const trendingJobs = await Job.aggregate([
@@ -762,20 +968,20 @@ createdAt: { $gte: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000) } // Last 90 
           applicationCount: { $size: '$applications' },
           trendScore: {
             $add: [
-              { $multiply: [{ $size: '$applications' }, 0.7] }, // Application weight
+              { $multiply: [{ $size: '$applications' }, 0.7] },
               { $multiply: [
                 { $divide: [
                   { $subtract: [new Date(), '$dates.posted'] },
-                  86400000 // Convert to days
+                  86400000
                 ]}, -0.3
-              ]} // Recency weight (negative because newer = higher score)
+              ]}
             ]
           }
         }
       },
       { $sort: { trendScore: -1 } },
       { $limit: limit },
- {
+      {
         $project: {
           jobId: 1,
           title: 1,
@@ -793,7 +999,32 @@ createdAt: { $gte: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000) } // Last 90 
     ]);
 
     return trendingJobs;
-  }
+  }
+
+  static mergeAndDedupe(jobs, limit) {
+    const seen = new Set();
+    const deduped = jobs.filter(job => {
+      if (seen.has(job.jobId)) return false;
+      seen.add(job.jobId);
+      return true;
+    });
+    return deduped.slice(0, limit);
+  }
+
+  static calculateRecommendationScore(job, userProfile, type) {
+    // Placeholder scoring logic
+    return 0.5;
+  }
+
+  static generateRecommendationReason(job, userProfile) {
+    // Placeholder reason logic
+    return 'Based on your profile and preferences';
+  }
+
+  static async findSimilarUsers(userId, userProfile) {
+    // Placeholder: Integrate with user service
+    return [];
+  }
 }
 
 
@@ -906,4 +1137,470 @@ export class RecommendationUtils {
   }
 }
 
+
+
+export class SearchStatsService {
+  static async getUserSearchStats(userId, timeFrame = "30d") {
+    try {
+      const timeMap = { "7d": 7, "30d": 30, "90d": 90, "365d": 365 };
+      const days = timeMap[timeFrame] || 30;
+      const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+      const stats = await SearchModel.aggregate([
+        {
+          $match: {
+            userId,
+            createdAt: { $gte: startDate },
+            isDeleted: false,
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            totalSearches: { $sum: 1 },
+            totalClicks: { $sum: "$stats.clickCount" },
+            totalResults: { $sum: "$stats.resultCount" },
+            avgExecutionTime: { $avg: "$stats.executionTime" },
+            avgResultCount: { $avg: "$stats.resultCount" },
+            avgClickCount: { $avg: "$stats.clickCount" },
+            topSearchTypes: { $push: "$metadata.type" },
+          },
+        },
+      ]);
+
+      return stats[0] || {};
+    } catch (error) {
+      logger.error("Failed to get user search stats:", error);
+      throw new Error(`Failed to retrieve user search stats: ${error.message}`);
+    }
+  }
+
+  static async getGlobalSearchStats(timeFrame = "30d") {
+    const cacheKey = `global_search_stats:${timeFrame}`;
+    try {
+      const cached = await redisClient.get(cacheKey);
+      if (cached) {
+        return JSON.parse(cached);
+      }
+    } catch (error) {
+      logger.warn("Redis cache miss for global stats:", error);
+    }
+
+    try {
+      const timeMap = { "7d": 7, "30d": 30, "90d": 90, "365d": 365 };
+      const days = timeMap[timeFrame] || 30;
+      const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+      const stats = await SearchHistory.aggregate([
+        { $match: { createdAt: { $gte: startDate }, isDeleted: false } },
+        {
+          $group: {
+            _id: null,
+            totalSearches: { $sum: 1 },
+            uniqueUsers: { $addToSet: "$userId" },
+            totalClicks: { $sum: "$stats.clickCount" },
+            avgExecutionTime: { $avg: "$stats.executionTime" },
+            searchTypes: { $push: "$metadata.type" },
+          },
+        },
+        {
+          $project: {
+            totalSearches: 1,
+            uniqueUsers: { $size: "$uniqueUsers" },
+            totalClicks: 1,
+            avgExecutionTime: 1,
+            searchTypes: 1,
+          },
+        },
+      ]);
+
+      const result = stats[0] || {};
+      await redisClient.setex(cacheKey, 300, JSON.stringify(result));
+      return result;
+    } catch (error) {
+      logger.error("Failed to get global search stats:", error);
+      throw new Error(`Failed to retrieve global search stats: ${error.message}`);
+    }
+  }
+
+  static async getTrendingSearches(limit = 10, timeFrame = "24h") {
+    try {
+      const hours = timeFrame === "24h" ? 24 : 168;
+      const startDate = new Date(Date.now() - hours * 60 * 60 * 1000);
+
+      return await SearchHistory.aggregate([
+        { $match: { createdAt: { $gte: startDate }, isDeleted: false } },
+        { $unwind: "$searchKeywords" },
+        {
+          $group: {
+            _id: "$searchKeywords",
+            count: { $sum: 1 },
+            avgResults: { $avg: "$stats.resultCount" },
+            avgClicks: { $avg: "$stats.clickCount" },
+          },
+        },
+        { $sort: { count: -1 } },
+        { $limit: limit },
+      ]);
+    } catch (error) {
+      logger.error("Failed to get trending searches:", error);
+      throw new Error(`Failed to retrieve trending searches: ${error.message}`);
+    }
+  }
+}
+
+// export class SearchStatsService {
+//   static async getUserSearchStats(userId, timeFrame = "30d") {
+//     try {
+//       const timeMap = { "7d": 7, "30d": 30, "90d": 90, "365d": 365 };
+//       const days = timeMap[timeFrame] || 30;
+//       const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+//       const stats = await SearchHistory.aggregate([
+//         {
+//           $match: {
+//             userId,
+//             createdAt: { $gte: startDate },
+//             isDeleted: false,
+//           },
+//         },
+//         {
+//           $group: {
+//             _id: null,
+//             totalSearches: { $sum: 1 },
+//             totalClicks: { $sum: "$stats.clickCount" },
+//             totalResults: { $sum: "$stats.resultCount" },
+//             avgExecutionTime: { $avg: "$stats.executionTime" },
+//             avgResultCount: { $avg: "$stats.resultCount" },
+//             avgClickCount: { $avg: "$stats.clickCount" },
+//             topSearchTypes: { $push: "$metadata.type" },
+//           },
+//         },
+//       ]);
+
+//       return stats[0] || {};
+//     } catch (error) {
+//       logger.error("Failed to get user search stats:", error);
+//       throw new Error(`Failed to retrieve user search stats: ${error.message}`);
+//     }
+//   }
+
+//   static async getGlobalSearchStats(timeFrame = "30d") {
+//     const cacheKey = `global_search_stats:${timeFrame}`;
+//     try {
+//       const cached = await redisClient.get(cacheKey);
+//       if (cached) {
+//         cacheHits.inc({ cache_type: "global_stats" });
+//         return JSON.parse(cached);
+//       }
+//     } catch (error) {
+//       logger.warn("Redis cache miss for global stats:", error);
+//     }
+
+//     try {
+//       const timeMap = { "7d": 7, "30d": 30, "90d": 90, "365d": 365 };
+//       const days = timeMap[timeFrame] || 30;
+//       const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+//       const stats = await SearchHistory.aggregate([
+//         { $match: { createdAt: { $gte: startDate }, isDeleted: false } },
+//         {
+//           $group: {
+//             _id: null,
+//             totalSearches: { $sum: 1 },
+//             uniqueUsers: { $addToSet: "$userId" },
+//             totalClicks: { $sum: "$stats.clickCount" },
+//             avgExecutionTime: { $avg: "$stats.executionTime" },
+//             searchTypes: { $push: "$metadata.type" },
+//           },
+//         },
+//         {
+//           $project: {
+//             totalSearches: 1,
+//             uniqueUsers: { $size: "$uniqueUsers" },
+//             totalClicks: 1,
+//             avgExecutionTime: 1,
+//             searchTypes: 1,
+//           },
+//         },
+//       ]);
+
+//       const result = stats[0] || {};
+//       await redisClient.setex(cacheKey, 300, JSON.stringify(result));
+//       return result;
+//     } catch (error) {
+//       logger.error("Failed to get global search stats:", error);
+//       throw new Error(`Failed to retrieve global search stats: ${error.message}`);
+//     }
+//   }
+
+//   static async getTrendingSearches(limit = 10, timeFrame = "24h") {
+//     try {
+//       const hours = timeFrame === "24h" ? 24 : 168;
+//       const startDate = new Date(Date.now() - hours * 60 * 60 * 1000);
+
+//       return await SearchHistory.aggregate([
+//         { $match: { createdAt: { $gte: startDate }, isDeleted: false } },
+//         { $unwind: "$searchKeywords" },
+//         {
+//           $group: {
+//             _id: "$searchKeywords",
+//             count: { $sum: 1 },
+//             avgResults: { $avg: "$stats.resultCount" },
+//             avgClicks: { $avg: "$stats.clickCount" },
+//           },
+//         },
+//         { $sort: { count: -1 } },
+//         { $limit: limit },
+//       ]);
+//     } catch (error) {
+//       logger.error("Failed to get trending searches:", error);
+//       throw new Error(`Failed to retrieve trending searches: ${error.message}`);
+//     }
+//   }
+// }
+
+// Search Event Service
+export class SearchEventService {
+  static async emit(eventType, data) {
+    try {
+      logger.info(`Search Event: ${eventType}`, data);
+      const eventKey = `search_event:${eventType}:${Date.now()}`;
+      await redisClient.setex(eventKey, 3600, JSON.stringify(data));
+
+      if (eventType === "analytics:search_created") {
+        await this.handleSearchCreated(data);
+      } else if (eventType === "analytics:search_clicked") {
+        await this.handleSearchClicked(data);
+      }
+    } catch (error) {
+      logger.error("Search event emission failed:", error);
+      throw new Error(`Failed to emit search event: ${error.message}`);
+    }
+  }
+
+  static async handleSearchCreated(data) {
+    try {
+      await UserActivity.create({
+        userId: data.userId,
+        activityType: "search",
+        metadata: {
+          searchId: data.searchId,
+          query: data.query,
+          type: data.type,
+        },
+      });
+    } catch (error) {
+      logger.error("Failed to handle search created event:", error);
+      throw new Error(`Failed to handle search created event: ${error.message}`);
+    }
+  }
+
+  static async handleSearchClicked(data) {
+    try {
+      await SearchHistory.updateOne(
+        { searchId: data.searchId },
+        {
+          $inc: { "stats.clickCount": 1 },
+          $set: { "stats.lastClickedAt": new Date() },
+        }
+      );
+    } catch (error) {
+      logger.error("Failed to handle search clicked event:", error);
+      throw new Error(`Failed to handle search clicked event: ${error.message}`);
+    }
+  }
+}
+
+// Search Vector Service for semantic search
+export class SearchVectorService {
+  static pinecone = null;
+  static index = null;
+
+  static async initialize() {
+    if (!process.env.PINECONE_API_KEY || !process.env.PINECONE_INDEX_NAME) {
+      throw new Error("Missing Pinecone configuration: PINECONE_API_KEY or PINECONE_INDEX_NAME");
+    }
+    if (!this.pinecone) {
+      this.pinecone = new Pinecone({
+        apiKey: process.env.PINECONE_API_KEY,
+      });
+      this.index = this.pinecone.index(process.env.PINECONE_INDEX_NAME);
+      logger.info("Pinecone initialized successfully");
+    }
+  }
+
+  static async generateSearchEmbedding(searchDoc) {
+    try {
+      await this.initialize();
+
+      const textContent = [
+        searchDoc.query,
+        ...searchDoc.searchKeywords,
+        searchDoc.metadata.type,
+      ].join(" ");
+
+      const embedding = await this.generateEmbedding(textContent);
+
+      await this.index.upsert([
+        {
+          id: searchDoc.searchId,
+          values: embedding,
+          metadata: {
+            userId: searchDoc.userId,
+            query: searchDoc.query,
+            type: searchDoc.metadata.type,
+            createdAt: searchDoc.createdAt,
+          },
+        },
+      ]);
+
+      searchDoc.embedding = embedding;
+    } catch (error) {
+      logger.error("Failed to generate search embedding:", error);
+      throw new Error(`Failed to generate search embedding: ${error.message}`);
+    }
+  }
+
+  static async generateEmbedding(text) {
+    try {
+      const model = genAI.getGenerativeModel({ model: "embedding-001" });
+      const response = await model.embedContent(text);
+      return response.embedding.values;
+    } catch (error) {
+      logger.error("Failed to generate embedding:", error);
+      throw new Error(`Failed to generate embedding: ${error.message}`);
+    }
+  }
+
+  static async findSimilarSearches(query, userId, limit = 10) {
+    try {
+      await this.initialize();
+      const queryEmbedding = await this.generateEmbedding(query);
+
+      const searchResponse = await this.index.query({
+        vector: queryEmbedding,
+        topK: limit,
+        filter: { userId },
+        includeMetadata: true,
+      });
+
+      return searchResponse.matches || [];
+    } catch (error) {
+      logger.error("Failed to find similar searches:", error);
+      throw new Error(`Failed to find similar searches: ${error.message}`);
+    }
+  }
+}
+
+// Search Index Monitoring Service
+export class SearchIndexMonitoringService {
+  static async checkIndexHealth() {
+    try {
+      const stats = await SearchHistory.collection.stats();
+      const indexStats = await SearchHistory.collection.getIndexes();
+
+      const health = {
+        collectionSize: stats.size,
+        documentCount: stats.count,
+        avgDocumentSize: stats.avgObjSize,
+        indexCount: indexStats.length,
+        indexes: indexStats.map((idx) => ({
+          name: idx.name,
+          keys: idx.key,
+          size: idx.size || 0,
+        })),
+        timestamp: new Date(),
+      };
+
+      await redisClient.setex("search_index_health", 300, JSON.stringify(health));
+      return health;
+    } catch (error) {
+      logger.error("Index health check failed:", error);
+      throw new Error(`Failed to check index health: ${error.message}`);
+    }
+  }
+
+  static async optimizeIndexes() {
+    try {
+      await SearchHistory.collection.reIndex();
+      logger.info("Search indexes optimized successfully");
+      return true;
+    } catch (error) {
+      logger.error("Index optimization failed:", error);
+      throw new Error(`Failed to optimize indexes: ${error.message}`);
+    }
+  }
+}
+
+// Search Maintenance Service
+export class SearchMaintenanceService {
+  static async cleanupOldSearches() {
+    try {
+      const cutoffDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+
+      const result = await SearchHistory.deleteMany({
+        createdAt: { $lt: cutoffDate },
+        isDeleted: true,
+      });
+
+      logger.info(`Cleaned up ${result.deletedCount} old search records`);
+      return result.deletedCount;
+    } catch (error) {
+      logger.error("Search cleanup failed:", error);
+      throw new Error(`Failed to clean up old searches: ${error.message}`);
+    }
+  }
+
+  static async archiveInactiveSearches() {
+    try {
+      const cutoffDate = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
+
+      const result = await SearchHistory.updateMany(
+        {
+          createdAt: { $lt: cutoffDate },
+          "stats.clickCount": 0,
+          isDeleted: false,
+        },
+        {
+          $set: { isDeleted: true, archivedAt: new Date() },
+        }
+      );
+
+      logger.info(`Archived ${result.modifiedCount} inactive searches`);
+      return result.modifiedCount;
+    } catch (error) {
+      logger.error("Search archival failed:", error);
+      throw new Error(`Failed to archive inactive searches: ${error.message}`);
+    }
+  }
+
+  static async deduplicateSearches() {
+    try {
+      const duplicates = await SearchHistory.aggregate([
+        {
+          $group: {
+            _id: { userId: "$userId", queryHash: "$queryHash" },
+            count: { $sum: 1 },
+            docs: { $push: "$_id" },
+          },
+        },
+        { $match: { count: { $gt: 1 } } },
+      ]);
+
+      let removedCount = 0;
+      for (const duplicate of duplicates) {
+        const [keep, ...remove] = duplicate.docs;
+        await SearchHistory.deleteMany({ _id: { $in: remove } });
+        removedCount += remove.length;
+      }
+
+      logger.info(`Removed ${removedCount} duplicate searches`);
+      return removedCount;
+    } catch (error) {
+      logger.error("Search deduplication failed:", error);
+      throw new Error(`Failed to deduplicate searches: ${error.message}`);
+    }
+  }
+}
 

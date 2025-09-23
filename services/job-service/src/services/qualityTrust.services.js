@@ -1,73 +1,61 @@
+// services/qualityTrust.services.js
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import dotenv from "dotenv";
-import { Company } from "../model/company.model.js";
-import { Job } from "../model/job.model.js";
-import { Application } from "../model/application.model.js";
-import { QualityTrust } from "../model/qualityTrust.model.js";
+import Company from "../model/company.model.js";
+import Job from "../model/job.model.js";
+import jobApplication from "../model/jobApplication.model.js";
+import QualityTrust from "../model/qualityTrust.model.js";
 import logger from "../utils/logger.js";
 import redisClient from "../config/redis.js";
-import { kafkaProducer, kafkaConsumer } from "../config/kafka.js";
+import { producer, publishJobEvent } from "../config/kafka.js";
 import { sanitizeInput } from "../utils/security.js";
 import axios from "axios";
 import { serviceLatency, serviceErrors } from "../utils/metrics.js";
-import mongoose from "mongoose";
-import { CACHE_TTL } from "../config/qualityTrust.cache_ttl.config.js";
+import { CACHE_TTL } from "../constants/cache.js";
 
 dotenv.config();
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-class QualityTrustService {
-  constructor() {
-    this.setupKafkaConsumer();
-  }
+export class QualityTrustService {
+  async handleMessage(topic, message) {
+    try {
+      const { type, payload, requestId } = message;
+      let result;
 
-  async setupKafkaConsumer() {
-    await kafkaConsumer.subscribe({ topics: ["quality_tasks"], fromBeginning: false });
-    kafkaConsumer.on("message", async ({ topic, value }) => {
-      const operation = "kafka_consumer";
-      try {
-        const latency = serviceLatency.startTimer({ operation });
-        const messages = Array.isArray(value) ? value : [JSON.parse(value)];
-        
-        // Batch process messages
-        const results = await Promise.all(messages.map(async (msg) => {
-          const task = JSON.parse(sanitizeInput(msg));
-          const { type, payload, requestId } = task;
-          
-          switch (type) {
-            case "company_verification":
-              return await this.verifyCompany(payload);
-            case "spam_detection":
-              return await this.checkJobSpam(payload);
-            case "salary_verification":
-              return await this.verifySalary(payload);
-            case "duplicate_application":
-              return await this.checkDuplicateApplication(payload);
-            case "job_quality":
-              return await this.calculateJobQuality(payload);
-            default:
-              throw new Error(`Unknown task type: ${type}`);
-          }
-        }));
-
-        // Batch send results to Kafka
-        await kafkaProducer.send({
-          topic: "quality_results",
-          messages: results.map((result, index) => ({
-            value: JSON.stringify({
-              type: messages[index].type,
-              payload: result,
-              requestId: messages[index].requestId,
-            }),
-          })),
-        });
-
-        latency();
-      } catch (error) {
-        serviceErrors.inc({ operation });
-        logger.error(`Kafka consumer error: ${error.message}`, { topic, error: error.stack });
+      switch (type) {
+        case 'quality_tasks':
+          result = await this.processTask(payload, requestId);
+          await publishJobEvent('quality_results', { type, payload: result, requestId });
+          break;
+        case 'company_verification':
+          result = await this.verifyCompany({ companyId: payload.companyId, verifiedBy: payload.verifiedBy, requestId });
+          await publishJobEvent('quality_results', { type, payload: result, requestId });
+          break;
+        case 'spam_detection':
+          result = await this.checkJobSpam({ jobId: payload.jobId, requestId });
+          await publishJobEvent('quality_results', { type, payload: result, requestId });
+          break;
+        case 'salary_verification':
+          result = await this.verifySalary({ jobId: payload.jobId, salaryData: payload.salaryData, requestId });
+          await publishJobEvent('quality_results', { type, payload: result, requestId });
+          break;
+        case 'duplicate_application':
+          result = await this.checkDuplicateApplication({ userId: payload.userId, jobId: payload.jobId, requestId });
+          await publishJobEvent('quality_results', { type, payload: result, requestId });
+          break;
+        case 'job_quality':
+          result = await this.calculateJobQuality({ jobId: payload.jobId, requestId });
+          await publishJobEvent('quality_results', { type, payload: result, requestId });
+          break;
+        default:
+          throw new Error(`Unknown task type: ${type}`);
       }
-    });
+      logger.info(`Processed ${topic} message`, { service: 'quality-trust', requestId });
+      return result;
+    } catch (error) {
+      logger.error(`Error processing ${topic} message: ${error.message}`, { service: 'quality-trust', requestId });
+      throw error;
+    }
   }
 
   async verifyCompany({ companyId, verifiedBy, requestId }) {
@@ -111,11 +99,6 @@ class QualityTrustService {
         CACHE_TTL.COMPANY_VERIFICATION,
         JSON.stringify(result)
       );
-
-      await kafkaProducer.send({
-        topic: "quality_results",
-        messages: [{ value: JSON.stringify({ type: "company_verification", payload: result, requestId }) }],
-      });
 
       logger.info(`[${requestId}] Company verification completed`, { companyId, duration: Date.now() });
       latency();
@@ -162,11 +145,6 @@ class QualityTrustService {
       };
 
       await redisClient.setex(`job_spam:${jobId}`, CACHE_TTL.JOB_SPAM, JSON.stringify(result));
-
-      await kafkaProducer.send({
-        topic: "quality_results",
-        messages: [{ value: JSON.stringify({ type: "spam_detection", payload: result, requestId }) }],
-      });
 
       logger.info(`[${requestId}] Spam check completed`, { jobId, spamScore, duration: Date.now() });
       latency();
@@ -220,11 +198,6 @@ class QualityTrustService {
         JSON.stringify(result)
       );
 
-      await kafkaProducer.send({
-        topic: "quality_results",
-        messages: [{ value: JSON.stringify({ type: "salary_verification", payload: result, requestId }) }],
-      });
-
       logger.info(`[${requestId}] Salary verification completed`, { jobId, duration: Date.now() });
       latency();
       return result;
@@ -244,13 +217,13 @@ class QualityTrustService {
       const job = await Job.findById(jobId).lean();
       if (!job || job.isDeleted) throw new Error("Job not found");
 
-      const existingApplication = await Application.findOne({
+      const existingApplication = await jobApplication.findOne({
         userId,
         jobId,
         status: { $ne: "withdrawn" },
       }).lean();
 
-      const similarApplications = await Application.find({
+      const similarApplications = await jobApplication.find({
         userId,
         companyId: job.companyId,
         createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
@@ -286,11 +259,6 @@ class QualityTrustService {
         CACHE_TTL.DUPLICATE_APPLICATION,
         JSON.stringify(result)
       );
-
-      await kafkaProducer.send({
-        topic: "quality_results",
-        messages: [{ value: JSON.stringify({ type: "duplicate_application", payload: result, requestId }) }],
-      });
 
       logger.info(`[${requestId}] Duplicate check completed`, { userId, jobId, isDuplicate, duration: Date.now() });
       latency();
@@ -334,11 +302,6 @@ class QualityTrustService {
       };
 
       await redisClient.setex(`job_quality:${jobId}`, CACHE_TTL.JOB_QUALITY, JSON.stringify(result));
-
-      await kafkaProducer.send({
-        topic: "quality_results",
-        messages: [{ value: JSON.stringify({ type: "job_quality", payload: result, requestId }) }],
-      });
 
       logger.info(`[${requestId}] Job quality calculated`, { jobId, score: overallScore, duration: Date.now() });
       latency();
@@ -817,6 +780,12 @@ class QualityTrustService {
       score: hasApplyLink ? 80 : 20,
       suggestion: hasApplyLink ? null : "Provide clear application instructions",
     };
+  }
+
+  async processTask(payload, requestId) {
+    // Implement your task processing logic
+    logger.info(`Processing task for request ${requestId}`, { service: 'quality-trust', payload });
+    return { result: 'processed', data: payload }; // Example
   }
 }
 

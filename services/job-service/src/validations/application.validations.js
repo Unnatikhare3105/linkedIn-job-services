@@ -1,7 +1,7 @@
 import Joi from 'joi';
-import { HTTP_STATUS } from '../constants/httpStatus';
+import { HTTP_STATUS } from '../constants/http.js';
 import CustomError from '../utils/CustomError.js';
-import JobApplication from '../models/JobApplication';
+import JobApplication from '../model/jobApplication.model.js';
 
 // Helper to validate MongoDB ObjectId
 const objectIdSchema = Joi.string().regex(/^[0-9a-fA-F]{24}$/).message('Invalid ObjectId');

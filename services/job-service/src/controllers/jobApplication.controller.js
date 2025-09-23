@@ -1,26 +1,23 @@
 import { v4 as uuidv4 } from "uuid";
 import logger from "../utils/logger.js";
-import CustomError from "../utils/CustomError.js";
-import CustomSuccess from "../utils/CustomSuccess.js";
+import CustomError from "../utils/customError.js";
+import CustomSuccess from "../utils/customSuccess.js";
 import { StatsService, JobEventHandler } from "../model/job.model.js";
+import JobApplication from "../model/jobApplication.model.js";
 import redisClient from "../config/redis.js";
-import { sanitizeInput } from "../utils/security.js";
+import { generateSecureId, sanitizeInput } from "../utils/security.js";
 import {
   validateApplyJobInput,
   validateUpdateApplicationStatus,
   validateResumeSelectionInput,
   validateCoverLetterInput,
-} from "../validations/application.validations.js";
-// import * as applicationService from '../services/application.services.js';
-
+} from "./validations/application.validations.js";
 import {
   HTTP_STATUS,
   ERROR_MESSAGES,
   SUCCESS_MESSAGES,
-} from "../constants/http.js";
-import {PersonalizationEngine} from "../model/searchHistory.model.js"; // For user profile personalization
-import Job from "../model/job.model.js";
-// import UserActivity from "../models/UserActivity";
+} from "../constants/messages.js";
+import { PersonalizationEngine } from "../model/search.model.js";
 import {
   SearchEventService,
   SearchStatsService,
@@ -28,13 +25,13 @@ import {
   SearchIndexMonitoringService,
   SearchMaintenanceService,
 } from "../services/search.services.js"; // Assuming these are imported from a services module
-import {buildRecentlyViewedQuery, getSortOptions} from "../services/search.services.js"
+import {buildRecentlyViewedQuery, getSortOptions} from "../services/search.services.js";
 
 
 
 // Controller: Applies to a job (POST /jobs/:jobId/apply)
 export const applyToJob = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
   const { jobId } = req.params;
   const userId = req.user?.id;
@@ -163,7 +160,7 @@ export const applyToJob = async (req, res) => {
 
 // Controller: Retrieves applications for a job (GET /jobs/:jobId/applications)
 export const getApplicationsByJob = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
   const { jobId } = req.params;
   const userId = req.user?.id;
@@ -254,7 +251,7 @@ export const getApplicationsByJob = async (req, res) => {
 
 // Controller: Updates application status (PUT /jobs/:jobId/applications/:applicationId)
 export const updateApplicationStatus = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
   const { applicationId } = req.params;
   const userId = req.user?.id;
@@ -388,7 +385,7 @@ export const updateApplicationStatus = async (req, res) => {
 
 // Controller: Deletes a job application (DELETE /jobs/:jobId/applications/:applicationId)
 export const deleteApplication = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
   const { applicationId } = req.params;
   const userId = req.user?.id;
@@ -498,7 +495,7 @@ export const deleteApplication = async (req, res) => {
 
 // *UNIFIED RESUME SELECTION CONTROLLER* (Advanced with validation, personalization check)
 export const selectResumeForApplication = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
   const userId = req.user?.id;
 
@@ -635,7 +632,7 @@ export const selectResumeForApplication = async (req, res) => {
 
 // *UNIFIED COVER LETTER ATTACHMENT CONTROLLER* (Advanced with validation, vector analysis)
 export const attachCoverLetter = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
   const userId = req.user?.id;
 

@@ -3,7 +3,7 @@ import logger from "../utils/logger.js";
 import CustomError from "../utils/CustomError.js";
 import CustomSuccess from "../utils/CustomSuccess.js";
 import Company, { CompanyEventService, CompanyVectorService } from "../model/company.model.js";
-import UserActivity from "../models/UserActivity.js";
+import UserActivity from "../model/userInteraction.model.js";
 import redisClient from "../config/redis.js";
 import { sanitizeInput } from "../utils/security.js";
 import { GoogleGenerativeAI } from "@google/generative-ai";
@@ -11,28 +11,21 @@ import {
   HTTP_STATUS,
   ERROR_MESSAGES,
   SUCCESS_MESSAGES,
-} from "../constants/http.js";
+} from "../constants/messages.js";
 import {
   validateCompanyId,
   validateReviewInput,
   validatePaginationParams,
-} from "../validations/company.validations.js";
-import {CACHE_TTL} from "../config/cache.ttl.js";
+} from "../validations/company.validation.js";
+import {CACHE_TTL} from "../constants/cache.js";
 import {RATE_LIMITS} from "../config/rate.limiter.js";
 import dotenv from "dotenv";
 import { withLock } from "../utils/withLocks.js";
 
 dotenv.config();
 
-
-/**
- * Get company page details with analytics and similarity scores
- * @param {Object} req - Express request object
- * @param {Object} res - Express response object
- * @param {Function} next - Express next middleware function
- */
 export const getCompanyPageController = async (req, res, next) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
 
   try {
@@ -124,7 +117,7 @@ export const getCompanyPageController = async (req, res, next) => {
     setImmediate(async () => {
       try {
         await UserActivity.create({
-          activityId: uuidv4(),
+          activityId: generateSecureId(),
           userId: req.body.userId || "anonymous",
           activityType: "COMPANY_PAGE_VIEW",
           metadata: { companyId: sanitizedCompanyId, requestId },
@@ -163,14 +156,8 @@ export const getCompanyPageController = async (req, res, next) => {
   }
 };
 
-/**
- * Submit or retrieve employee reviews for a company
- * @param {Object} req - Express request object
- * @param {Object} res - Express response object
- * @param {Function} next - Express next middleware function
- */
 export const employeeReviewsController = async (req, res, next) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
 
   try {
@@ -214,7 +201,7 @@ export const employeeReviewsController = async (req, res, next) => {
           });
         }
 
-        const reviewId = uuidv4();
+        const reviewId = generateSecureId();
         const sanitizedReview = {
           reviewId,
           userId: sanitizeInput(userId),
@@ -248,7 +235,7 @@ export const employeeReviewsController = async (req, res, next) => {
         setImmediate(async () => {
           try {
             await UserActivity.create({
-              activityId: uuidv4(),
+              activityId: generateSecureId(),
               userId: sanitizedReview.userId,
               activityType: "EMPLOYEE_REVIEW_SUBMITTED",
               metadata: {
@@ -373,14 +360,8 @@ export const employeeReviewsController = async (req, res, next) => {
   }
 };
 
-/**
- * Get company culture information with Gemini AI-generated summary
- * @param {Object} req - Express request object
- * @param {Object} res - Express response object
- * @param {Function} next - Express next middleware function
- */
 export const getCompanyCultureInfoController = async (req, res, next) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
 
   try {
@@ -463,7 +444,7 @@ export const getCompanyCultureInfoController = async (req, res, next) => {
     setImmediate(async () => {
       try {
         await UserActivity.create({
-          activityId: uuidv4(),
+          activityId: generateSecureId(),
           userId: req.body.userId || "anonymous",
           activityType: "CULTURE_INFO_VIEW",
           metadata: { companyId: sanitizedCompanyId, requestId },

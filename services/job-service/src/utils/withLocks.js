@@ -1,11 +1,12 @@
 import { v4 as uuidv4 } from "uuid";
-import {redisClient} from "../config/redis.js";
+import redisClient from "../config/redis.js";
+import { generateSecureId } from "./security.js";
 
 // Distributed locking utility
 export async function withLock(key, timeoutMs, callback) {
   const lockKey = `lock:${key}`;
   const lockTimeout = timeoutMs / 1000;
-  const lockValue = uuidv4();
+  const lockValue = generateSecureId();
   try {
     const acquired = await redisClient.set(lockKey, lockValue, { NX: true, EX: lockTimeout });
     if (!acquired) throw new Error("Failed to acquire lock");

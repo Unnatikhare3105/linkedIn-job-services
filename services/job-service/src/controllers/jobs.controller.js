@@ -1,7 +1,8 @@
 import { v4 as uuidv4 } from "uuid";
 import Job, { JobEventService } from "../model/job.model.js";
-import { sanitizeInput, sanitizeUserId } from "../utils/security.js";
+import { generateSecureId, sanitizeInput, sanitizeUserId } from "../utils/security.js";
 import * as jobService from "../services/job.services.js";
+import redisClient from "../config/redis.js";
 import {
   normalizeArrayFields,
   validateSaveSearchInput,
@@ -10,17 +11,17 @@ import {
   validateListJobsFilters,
 } from "../validations/job.validations.js";
 import logger from "../utils/logger.js";
-import CustomError from "../utils/CustomError.js";
-import CustomSuccess from "../utils/CustomSuccess.js";
+import CustomError from "../utils/customError.js";
+import CustomSuccess from "../utils/customSuccess.js";
 import {
   HTTP_STATUS,
   ERROR_MESSAGES,
   SUCCESS_MESSAGES,
-} from "../constants/http.js";
+} from "../constants/messages.js";
 
 // Controller: Handles creation of a new job (POST /jobs)
 export const createJobController = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
 
   try {
@@ -128,7 +129,7 @@ export const createJobController = async (req, res) => {
 
 // Controller: Retrieves a single job by ID (GET /jobs/:jobId)
 export const getJobByIdController = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
 
   try {
@@ -185,7 +186,7 @@ export const getJobByIdController = async (req, res) => {
 
 // Controller: Updates a job by ID (PUT /jobs/:jobId)
 export const updateJobController = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
 
   try {
@@ -294,7 +295,7 @@ export const updateJobController = async (req, res) => {
 
 // Controller: Soft deletes a job (DELETE /jobs/:jobId)
 export const deleteJobController = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
   const { jobId } = req.params;
 
@@ -378,7 +379,7 @@ export const deleteJobController = async (req, res) => {
 
 // Controller: Lists, filters, or searches jobs (GET /jobs)
 export const listJobsController = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
   const sanitizedFilters = sanitizeInput(req.query);
 
@@ -436,7 +437,7 @@ export const listJobsController = async (req, res) => {
 
 // Controller: Gets featured jobs (GET /jobs/featured)
 export const featuredJobsController = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
 
   try {
@@ -478,7 +479,7 @@ export const featuredJobsController = async (req, res) => {
 
 // Controller: Saves a job search for a user (POST /jobs/save-search)
 export const saveJobsController = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
   const userId = req.user?.id;
   const { type, query } = req.body;

@@ -2,26 +2,26 @@ import { v4 as uuidv4 } from 'uuid';
 import mongoose from 'mongoose';
 import logger from '../utils/logger.js';
 import { sanitizeUserId } from '../utils/security.js';
-import { redisCluster } from '../config/redis.js';
+import redisClient from '../config/redis.js';
 import dotenv from 'dotenv';
 import pkg from '@pinecone-database/pinecone';
 import NodeGeocoder from 'node-geocoder';
+
 dotenv.config();
 const { Pinecone } = pkg;
 
-// Enhanced UUID validator with better performance
+// Enhanced UUID validator
 const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const validateUUID = (v) => uuidRegex.test(v);
 
-// Geocoder setup for headquarters coordinates
+// Geocoder setup
 const geocoder = NodeGeocoder({
   provider: 'openstreetmap',
 });
 
-// Optimized Company Schema for 1M+ users
+// Optimized Company Schema
 const companySchema = new mongoose.Schema(
   {
-    // Core Company Information (Most frequently accessed)
     companyId: {
       type: String,
       required: true,
@@ -36,7 +36,7 @@ const companySchema = new mongoose.Schema(
       required: true,
       trim: true,
       maxlength: 100,
-      index: true, // For search optimization
+      index: true,
       validate: {
         validator: (v) => /^[a-zA-Z0-9\s\-'&.,]+$/.test(v),
         message: 'Company name contains invalid characters',
@@ -59,7 +59,6 @@ const companySchema = new mongoose.Schema(
         message: 'Display name contains invalid characters',
       },
     },
-    // Business Information
     industry: {
       type: String,
       required: true,
@@ -97,7 +96,6 @@ const companySchema = new mongoose.Schema(
       },
       index: true,
     },
-    // Contact Information (Optimized)
     email: {
       type: String,
       required: true,
@@ -128,7 +126,6 @@ const companySchema = new mongoose.Schema(
         message: 'Invalid website URL',
       },
     },
-    // Location (Optimized for geo queries)
     headquarters: {
       address: { type: String, required: true, maxlength: 200 },
       city: { type: String, required: true, maxlength: 50, index: true },
@@ -137,10 +134,9 @@ const companySchema = new mongoose.Schema(
       pincode: { type: String, maxlength: 10 },
       coordinates: {
         type: { type: String, enum: ['Point'], default: 'Point' },
-        coordinates: { type: [Number], index: '2dsphere' }, // [longitude, latitude]
+        coordinates: { type: [Number], index: '2dsphere' },
       },
     },
-    // Descriptions (Moved to separate fields for better performance)
     descriptions: {
       short: {
         type: String,
@@ -167,20 +163,10 @@ const companySchema = new mongoose.Schema(
         },
       },
     },
-    // Media (Optimized storage)
     media: {
-      logo: {
-        url: String,
-        publicId: String,
-        uploadedAt: Date,
-      },
-      coverImage: {
-        url: String,
-        publicId: String,
-        uploadedAt: Date,
-      },
+      logo: { url: String, publicId: String, uploadedAt: Date },
+      coverImage: { url: String, publicId: String, uploadedAt: Date },
     },
-    // Social Media (Consolidated)
     socialMedia: {
       linkedin: String,
       twitter: String,
@@ -189,7 +175,6 @@ const companySchema = new mongoose.Schema(
       youtube: String,
       github: String,
     },
-    // Subscription & Account Status
     subscription: {
       plan: {
         type: String,
@@ -211,7 +196,6 @@ const companySchema = new mongoose.Schema(
         resumeViews: { type: Number, default: 10 },
       },
     },
-    // Account Status & Verification (Critical for queries)
     account: {
       status: {
         type: String,
@@ -226,7 +210,6 @@ const companySchema = new mongoose.Schema(
         enum: ['Email', 'Phone', 'Document', 'Manual'],
       },
     },
-    // Optimized Stats (Most frequently accessed)
     stats: {
       totalJobs: { type: Number, default: 0, min: 0 },
       activeJobs: { type: Number, default: 0, min: 0 },
@@ -236,7 +219,6 @@ const companySchema = new mongoose.Schema(
       lastJobPosted: Date,
       successRate: { type: Number, default: 0, min: 0, max: 100 },
     },
-    // Preferences for Smart Matching
     preferences: {
       jobCategories: [{ type: String, maxlength: 50 }],
       skillsets: [{ type: String, maxlength: 50, index: 'text' }],
@@ -254,14 +236,12 @@ const companySchema = new mongoose.Schema(
         default: 'On-site',
       },
     },
-    // SEO Optimization
     seo: {
       metaTitle: { type: String, maxlength: 60 },
       metaDescription: { type: String, maxlength: 160 },
       keywords: [{ type: String, maxlength: 30 }],
       slug: { type: String, unique: true, sparse: true },
     },
-    // Feature Flags
     features: {
       isFeatured: { type: Boolean, default: false, index: true },
       isPremium: { type: Boolean, default: false, index: true },
@@ -269,14 +249,12 @@ const companySchema = new mongoose.Schema(
       showSalaryRange: { type: Boolean, default: false },
       autoPostToSocial: { type: Boolean, default: false },
     },
-    // Analytics Tracking (Minimal data in main doc)
     analytics: {
       viewCount: { type: Number, default: 0, min: 0 },
       applicationCount: { type: Number, default: 0, min: 0 },
       engagementScore: { type: Number, default: 0, min: 0, max: 100 },
       lastCalculated: { type: Date, default: Date.now },
     },
-    // Audit Fields
     audit: {
       createdBy: {
         type: String,
@@ -292,7 +270,6 @@ const companySchema = new mongoose.Schema(
       deletedAt: Date,
       deletedBy: String,
     },
-    // Relationships (Minimal references)
     relationships: {
       activeJobsCount: { type: Number, default: 0, min: 0 },
       totalReviewsCount: { type: Number, default: 0, min: 0 },
@@ -303,33 +280,25 @@ const companySchema = new mongoose.Schema(
     timestamps: true,
     versionKey: false,
     collection: 'companies',
-    // Optimize document structure
     minimize: false,
-    // Enable strict mode
     strict: true,
-    // Add change detection
     trackRevisions: false,
   }
 );
 
-// OPTIMIZED INDEXES FOR 1M+ USERS
-// Primary indexes for core queries
+// Optimized Indexes
 companySchema.index({ companyId: 1 });
 companySchema.index({ companySlug: 1 });
-// Composite indexes for common filter combinations
 companySchema.index({
   'account.status': 1,
   'account.isVerified': 1,
   industry: 1,
   'audit.isDeleted': 1
 });
-// Location-based queries
 companySchema.index({ 'headquarters.coordinates': '2dsphere' });
 companySchema.index({ 'headquarters.city': 1, industry: 1, 'audit.isDeleted': 1 });
-// Performance indexes
 companySchema.index({ 'stats.profileViews': -1, createdAt: -1 });
 companySchema.index({ 'features.isFeatured': 1, 'account.status': 1, 'audit.isDeleted': 1 });
-// Search optimization
 companySchema.index({
   companyName: 'text',
   'descriptions.short': 'text',
@@ -338,9 +307,7 @@ companySchema.index({
   name: 'company_search_index',
   weights: { companyName: 10, 'descriptions.short': 5, 'preferences.skillsets': 1 }
 });
-// Subscription queries
 companySchema.index({ 'subscription.plan': 1, 'subscription.isActive': 1 });
-// TTL index for soft-deleted records (auto-cleanup after 90 days)
 companySchema.index(
   { 'audit.deletedAt': 1 },
   {
@@ -349,18 +316,15 @@ companySchema.index(
   }
 );
 
-// PERFORMANCE OPTIMIZATIONS
-// Pre-save middleware for data optimization
+// Pre-save Middleware
 companySchema.pre('save', async function(next) {
   try {
-    // Auto-generate slug if not provided
     if (!this.companySlug && this.companyName) {
       this.companySlug = this.companyName
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/^-|-$/g, '');
     }
-    // Update coordinates for location
     if (this.isModified('headquarters') && !this.headquarters.coordinates.coordinates.length) {
       const address = `${this.headquarters.address}, ${this.headquarters.city}, ${this.headquarters.state}, ${this.headquarters.country}`;
       const result = await geocoder.geocode(address);
@@ -370,7 +334,6 @@ companySchema.pre('save', async function(next) {
         logger.warn('Geocoding failed: No results found', { companyId: this.companyId, address });
       }
     }
-    // Sanitize user inputs
     if (this.audit && this.audit.updatedBy) {
       this.audit.updatedBy = sanitizeUserId(this.audit.updatedBy);
     }
@@ -381,14 +344,11 @@ companySchema.pre('save', async function(next) {
   }
 });
 
-// Post-save middleware for cache invalidation
+// Post-save Middleware
 companySchema.post('save', async function(doc) {
   try {
-    // Invalidate cache
-    await redisCluster.del(`company:${doc.companyId}`);
-    await redisCluster.del(`company:slug:${doc.companySlug}`);
-
-    // Log for monitoring
+    await redisClient.del(`company:${doc.companyId}`);
+    await redisClient.del(`company:slug:${doc.companySlug}`);
     logger.info('Company document saved', {
       companyId: doc.companyId,
       operation: 'save',
@@ -402,8 +362,7 @@ companySchema.post('save', async function(doc) {
   }
 });
 
-// STATIC METHODS FOR OPTIMIZED QUERIES
-// Optimized listing query for high performance
+// Static Methods
 companySchema.statics.findForListing = function(filters = {}, options = {}) {
   const {
     page = 1,
@@ -437,7 +396,6 @@ companySchema.statics.findForListing = function(filters = {}, options = {}) {
     .lean();
 };
 
-// Optimized profile query
 companySchema.statics.findProfile = function(identifier) {
   const query = typeof identifier === 'string' && identifier.includes('-')
     ? { companySlug: identifier }
@@ -448,12 +406,10 @@ companySchema.statics.findProfile = function(identifier) {
   }).select('-audit -__v').lean();
 };
 
-// Search with caching
 companySchema.statics.searchCompanies = async function(searchQuery, filters = {}, options = {}) {
   const cacheKey = `search:${Buffer.from(JSON.stringify({ searchQuery, filters, options })).toString('base64')}`;
- 
   try {
-    const cached = await redisCluster.get(cacheKey);
+    const cached = await redisClient.get(cacheKey);
     if (cached) {
       return JSON.parse(cached);
     }
@@ -470,16 +426,14 @@ companySchema.statics.searchCompanies = async function(searchQuery, filters = {}
     .sort({ score: { $meta: 'textScore' }, 'stats.profileViews': -1 })
     .limit(options.limit || 50)
     .lean();
-  // Cache results for 5 minutes
   try {
-    await redisCluster.setex(cacheKey, 300, JSON.stringify(results));
+    await redisClient.setEx(cacheKey, 300, JSON.stringify(results));
   } catch (error) {
     logger.warn('Cache storage failed', { error: error.message });
   }
   return results;
 };
 
-// Bulk operations for data migration/updates
 companySchema.statics.bulkUpdateStats = async function(updates) {
   const bulkOps = updates.map(({ companyId, stats }) => ({
     updateOne: {
@@ -497,14 +451,14 @@ companySchema.statics.bulkUpdateStats = async function(updates) {
   return this.bulkWrite(bulkOps, { ordered: false });
 };
 
-// CONNECTION OPTIMIZATION
-mongoose.set('maxTimeMS', 30000);
-mongoose.set('bufferMaxEntries', 0);
+// Connection Optimization
+mongoose.set('maxTimeMS', 30000); // Set query timeout to 30 seconds
+mongoose.set('bufferCommands', true); // Enable command buffering
 
-// Create the model
+// Create the Model
 const Company = mongoose.model('Company', companySchema);
 
-// SEPARATE SERVICES FOR SCALABILITY
+// Services
 class CompanyStatsService {
   static async updateAnalytics(companyId) {
     try {
@@ -518,16 +472,13 @@ class CompanyStatsService {
           }
         }
       );
-     
-      // Invalidate cache
-      await redisCluster.del(`company:${companyId}`);
+      await redisClient.del(`company:${companyId}`);
     } catch (error) {
       logger.error('Stats update failed', { companyId, error: error.message });
       throw error;
     }
   }
   static async calculateStats(companyId) {
-    // Implementation for calculating analytics
     return {
       viewCount: 0,
       applicationCount: 0,
@@ -540,7 +491,6 @@ class CompanyStatsService {
 class CompanyEventService {
   static async logEvent(companyId, eventType, data = {}) {
     try {
-      // Log to separate events collection or external service
       logger.info('Company event', {
         companyId,
         eventType,
@@ -558,14 +508,12 @@ class CompanyVectorService {
     try {
       const company = await Company.findOne({ companyId }).lean();
       if (!company) return;
-      // Create embedding from company description and skills
       const text = [
         company.companyName,
         company.descriptions?.detailed || '',
         company.preferences?.skillsets?.join(' ') || ''
       ].join(' ');
-      // Store in separate vector database (Pinecone, Weaviate, etc.)
-      // await vectorDB.upsert({ id: companyId, vector: embedding, metadata: company });
+      // Store in Pinecone (configured in .env)
     } catch (error) {
       logger.error('Vector update failed', { companyId, error: error.message });
     }
@@ -577,10 +525,7 @@ class CompanyIndexMonitoringService {
     try {
       const db = mongoose.connection.db;
       const stats = await db.collection('companies').indexStats();
-     
       logger.info('Index usage stats', { stats });
-     
-      // Alert if any index has low usage
       stats.forEach(index => {
         if (index.accesses.ops < 100 && index.name !== 'id') {
           logger.warn('Low index usage detected', {
@@ -599,7 +544,6 @@ class CompanyMaintenanceService {
   static async cleanupDeletedRecords() {
     try {
       const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-     
       const result = await Company.deleteMany({
         'audit.isDeleted': true,
         'audit.deletedAt': { $lt: thirtyDaysAgo }
@@ -619,7 +563,6 @@ class CompanyMaintenanceService {
   }
 }
 
-// EXPORT SERVICES
 export {
   CompanyStatsService,
   CompanyEventService,

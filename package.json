@@ -1,22 +1,58 @@
 {
+  "name": "linkedin-job-services",
+  "version": "1.0.0",
+  "main": "services/job-service/server.js",
+  "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Unnatikhare3105/linkedIn-job-services.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Unnatikhare3105/linkedIn-job-services/issues"
+  },
+  "homepage": "https://github.com/Unnatikhare3105/linkedIn-job-services#readme",
+  "description": "",
   "dependencies": {
     "@elastic/elasticsearch": "^9.1.1",
     "@google/generative-ai": "^0.24.1",
+    "@jest/globals": "^30.1.2",
     "@pinecone-database/pinecone": "^6.1.2",
+    "async-retry": "^1.3.3",
+    "axios": "^1.11.0",
     "boolean-parser": "^0.0.2",
     "dotenv": "^17.2.2",
     "express": "^5.1.0",
     "express-rate-limit": "^8.1.0",
+    "express-validator": "^7.2.1",
+    "ioredis": "^5.7.0",
+    "isomorphic-dompurify": "^2.26.0",
     "joi": "^18.0.1",
     "kafkajs": "^2.2.4",
-    "mongoose": "^8.18.0",
+    "mongoose": "^8.18.1",
+    "multer": "^2.0.2",
+    "node-cache": "^5.1.2",
     "node-geocoder": "^4.4.1",
+    "openai": "^5.19.1",
     "opossum": "^9.0.0",
     "prom-client": "^15.1.3",
+    "rate-limit-redis": "^4.2.2",
     "redis": "^5.8.2",
     "sanitize-html": "^2.17.0",
-    "uuid": "^11.1.0",
+    "uuid": "^12.0.0",
     "weaviate-client": "^3.8.1",
+    "weaviate-ts-client": "^2.2.0",
     "winston": "^3.17.0"
+  },
+  "devDependencies": {
+    "@shelf/jest-mongodb": "^5.2.2",
+    "jest": "^30.1.3",
+    "mockingoose": "^2.16.2",
+    "supertest": "^7.1.4"
   }
 }

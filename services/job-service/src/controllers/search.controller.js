@@ -1,11 +1,11 @@
-import { v4 as uuidv4 } from "uuid";
 import logger from "../utils/logger.js";
-import CustomError from "../utils/CustomError.js";
-import CustomSuccess from "../utils/CustomSuccess.js";
+import CustomError from "../utils/customError.js";
+import CustomSuccess from "../utils/customSuccess.js";
 import Job, { JobEventService } from "../model/job.model.js";
-// import UserActivity from "../models/UserActivity.js";
+import UserActivity from "../model/userInteraction.model.js";
 import redisClient from "../config/redis.js";
-import { sanitizeInput } from "../utils/security.js";
+import { generateSecureId, sanitizeInput } from "../utils/security.js";
+// Removed redisCluster, use redisClient only
 import {
   buildRecentlyViewedQuery,
   getSortOptions,
@@ -29,18 +29,19 @@ import {
   HTTP_STATUS,
   ERROR_MESSAGES,
   SUCCESS_MESSAGES,
-} from "../constants/http.js";
-import SearchHistory, {
-  searchDuration,
+} from "../constants/messages.js";
+import { searchDuration,
   searchRequests,
   activeSearches,
+cacheHits } from "../utils/metrics.js";
+import SearchHistory, {
   CacheManager,
   PersonalizationEngine
-} from "../model/searchHistory.model.js";
+} from "../model/search.model.js";
 
 // GET /jobs/search/advanced - Advanced unified search
 export const advancedJobSearch = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
   const userId = req.user?.id;
   const userType = req.user?.subscription || "free";
@@ -185,7 +186,7 @@ export const advancedJobSearch = async (req, res) => {
 
     // Store search in recent searches
     if (userId) {
-      await redisCluster.lPush(
+  await redisClient.lPush(
         `recent:searches:${userId}`,
         JSON.stringify({
           type: "advanced",
@@ -195,7 +196,7 @@ export const advancedJobSearch = async (req, res) => {
           resultCount: result.total,
         })
       );
-      await redisCluster.lTrim(`recent:searches:${userId}`, 0, 19); // Keep last 20
+  await redisClient.lTrim(`recent:searches:${userId}`, 0, 19); // Keep last 20
     }
 
     // Add to analytics buffer
@@ -274,7 +275,7 @@ export const advancedJobSearch = async (req, res) => {
 
 // GET /jobs/recommendations - Personalized job recommendations
 export const getJobRecommendations = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
   const userId = req.user?.id;
   const { limit = 20, type = "mixed" } = req.query;
@@ -368,7 +369,7 @@ export const getJobRecommendations = async (req, res) => {
 // GET /jobs/search/title - Search jobs by title
 // Controller: Searches jobs by title
 export const searchJobsByTitle = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
   const userId = req.user?.id;
   const { query, page = 1, limit = 20 } = req.query;
@@ -480,7 +481,7 @@ export const searchJobsByTitle = async (req, res) => {
 // GET /jobs/search/company - Search jobs by company name
 // Controller: Searches jobs by company
 export const searchJobsByCompany = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
   const userId = req.user?.id;
   const { query, page = 1, limit = 20 } = req.query;
@@ -596,7 +597,7 @@ export const searchJobsByCompany = async (req, res) => {
 // GET /jobs/search/skills - Search jobs by skills
 // Controller: Searches jobs by skills
 export const searchJobsBySkills = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
   const userId = req.user?.id;
   const { skills, page = 1, limit = 20 } = req.query;
@@ -714,7 +715,7 @@ export const searchJobsBySkills = async (req, res) => {
 // GET /jobs/search/keyword - General keyword search
 // Controller: Searches jobs by keyword
 export const searchJobsByKeyword = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
   const userId = req.user?.id;
   const { query, page = 1, limit = 20 } = req.query;
@@ -823,7 +824,7 @@ export const searchJobsByKeyword = async (req, res) => {
 // GET /jobs/autocomplete - Get autocomplete suggestions
 // Controller: Gets autocomplete suggestions for job search
 export const getAutoCompleteSuggestions = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
   const userId = req.user?.id;
   const { query, type = "mixed", limit = 15 } = req.query;
@@ -928,7 +929,7 @@ export const getAutoCompleteSuggestions = async (req, res) => {
 // GET /jobs/recent-searches - Fetch user's recent searches
 // Controller: Gets recent job searches for a user
 export const getRecentSearches = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
   const userId = req.user?.id;
 
@@ -984,7 +985,7 @@ export const getRecentSearches = async (req, res) => {
 //GET /jobs/search/location
 // Controller: Searches jobs by location
 export const searchJobsByLocation = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
   const userId = req.user?.id;
   const { query, limit = 20 } = req.query;
@@ -1075,7 +1076,7 @@ export const searchJobsByLocation = async (req, res) => {
 // GET /jobs/search/suggestions - Get search suggestions based on partial query
 // Controller: Gets search suggestions for jobs
 export const getSearchSuggestions = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
   const userId = req.user?.id;
   const { query, limit = 10 } = req.query;
@@ -1155,7 +1156,7 @@ export const getSearchSuggestions = async (req, res) => {
 // GET /jobs/search/any - Search jobs across any field
 // Controller: Searches jobs by any field
 export const searchJobsAnyField = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
   const userId = req.user?.id;
   const { query, page = 1, limit = 20 } = req.query;
@@ -1262,7 +1263,7 @@ export const searchJobsAnyField = async (req, res) => {
 // GET /jobs/search/trending - Get trending searches
 // Controller: Gets trending job searches
 export const getTrendingSearches = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
   const userId = req.user?.id;
   const { limit = 10 } = req.query;
@@ -1334,7 +1335,7 @@ export const getTrendingSearches = async (req, res) => {
 // GET /jobs/search/saved - Get saved searches (assuming user authentication required)
 // Controller: Gets saved job searches for a user
 export const getSavedSearches = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
   const userId = req.user?.id;
   const { limit = 10 } = req.query;
@@ -1412,7 +1413,7 @@ export const getSavedSearches = async (req, res) => {
 // GET /jobs/search/exclude - Search jobs excluding keywords
 // Controller: Searches jobs excluding certain keywords
 export const searchJobsExcludeKeywords = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
   const userId = req.user?.id;
   const { query, page = 1, limit = 20 } = req.query;
@@ -1519,7 +1520,7 @@ export const searchJobsExcludeKeywords = async (req, res) => {
 // GET /jobs/search/natural - Natural language search for jobs
 // Controller: Searches jobs using natural language
 export const searchJobsNaturalLanguage = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
   const userId = req.user?.id;
   const { query, page = 1, limit = 20 } = req.query;
@@ -1626,7 +1627,7 @@ export const searchJobsNaturalLanguage = async (req, res) => {
 // GET /jobs/search/history - Get search history (longer term, assume stored in Redis with more retention)
 // Controller: Gets job search history for a user
 export const getSearchHistory = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
   const userId = req.user?.id;
   const { period = "30d", limit = 50 } = req.query;
@@ -1724,7 +1725,7 @@ export const getSearchHistory = async (req, res) => {
 
 // GET /jobs/similar/:jobId - Similar job suggestions
 export const searchSimilarJobs = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
   const userId = req.user?.id;
   const { jobId } = req.params;
@@ -1900,7 +1901,7 @@ export const searchSimilarJobs = async (req, res) => {
 // GET /jobs/search/exact - Exact phrase search for jobs
 // Controller: Searches jobs by exact phrase
 export const searchJobsExactPhrase = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
   const userId = req.user?.id;
   const { query, page = 1, limit = 20 } = req.query;
@@ -2007,7 +2008,7 @@ export const searchJobsExactPhrase = async (req, res) => {
 // POST /jobs/bulk-search
 // Controller: Performs bulk job search for admin/batch operations
 export const bulkSearchJobs = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
   const userId = req.user?.id;
   const isAdmin = req.user?.role === "admin";
@@ -2142,7 +2143,7 @@ export const bulkSearchJobs = async (req, res) => {
 
 // *UNIFIED RECENTLY VIEWED JOBS CONTROLLER* (Advanced with personalization, facets, pagination)
 export const getRecentlyViewedJobs = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
   const userId = req.user?.id;
 
@@ -2403,7 +2404,7 @@ export const getRecentlyViewedJobs = async (req, res) => {
 
 // *UNIFIED OFFLINE JOB VIEWING CONTROLLER* (Advanced with personalization, facets, pagination)
 export const getOfflineJobs = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
   const userId = req.user?.id;
 

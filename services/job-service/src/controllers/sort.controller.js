@@ -4,23 +4,23 @@ import {
   HTTP_STATUS,
   ERROR_MESSAGES,
   SUCCESS_MESSAGES,
-} from "../constants/http.js";
-import CustomError from "../utils/CustomError.js`;";
-import CustomSuccess from "../utils/CustomSuccess.js";
+} from "../constants/messages.js";
+import CustomError from "../utils/customError.js";
+import CustomSuccess from "../utils/customSuccess.js";
 import Job, { JobEventService } from "../model/job.model.js";
 import redisClient from "../config/redis.js";
-import { sanitizeInput } from "../utils/security.js";
+import { generateSecureId, sanitizeInput } from "../utils/security.js";
 import { validateSortInput } from "../validations/sort.validations.js"
 import {
   getSortIndexHint,
   getSortDescription,
   buildSortQuery,
   getSortOptions,
-} from "./services/sort.services.js";
+} from "../services/sort.services.js";
 
 // *MAIN UNIFIED SORT CONTROLLER*
 export const sortJobs = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const startTime = Date.now();
   const userId = req.user?.id;
 
@@ -500,7 +500,7 @@ export const getSortOptionsController = async (req, res) => {
 
 // *SORT ANALYTICS* - Get popular sort preferences
 export const getSortAnalytics = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
 
   try {
     const cacheKey = "analytics:sort:popular";
@@ -586,7 +586,7 @@ db.jobs.createIndex({
 
 // *CUSTOM SORT BUILDER* - Allow users to create custom sort combinations
 export const createCustomSort = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const userId = req.user?.id;
 
   if (!userId) {
@@ -734,7 +734,7 @@ export const createCustomSort = async (req, res) => {
 
 // *SORT COMPARISON* - A/B test different sort algorithms
 export const compareSorts = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const userId = req.user?.id;
 
   try {
@@ -808,7 +808,7 @@ export const compareSorts = async (req, res) => {
 
 // *SMART SORT RECOMMENDATIONS* - ML-powered sort suggestions
 export const getSmartSortRecommendations = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const userId = req.user?.id;
 
   try {
@@ -914,7 +914,7 @@ export const getSmartSortRecommendations = async (req, res) => {
 
 // *SORT PERFORMANCE METRICS* - Monitor sort algorithm performance
 export const getSortPerformanceMetrics = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
 
   try {
     const { timeRange = "24h" } = req.query;

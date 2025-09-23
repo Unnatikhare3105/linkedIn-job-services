@@ -4,7 +4,7 @@ import {kafkaProducer} from '../kafka/producer.js';
 import redisClient from '../config/redis.js';
 // ===== VECTOR DATABASE INTEGRATION (Production-ready with actual DB clients) =====
 import pkg from '@pinecone-database/pinecone';
-import JobAnalytics from '../model/jobAnalysis.model.js';
+import JobAnalytics from './Insights.model.js';
 import weaviate from 'weaviate-ts-client';
 import { sanitizeUserId} from '../utils/security.js';
 import logger  from '../utils/logger.js';

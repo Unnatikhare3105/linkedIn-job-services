@@ -1,33 +1,27 @@
-// controllers/completeFilterController.js
-// Production-ready unified search + filter controller for 1M+ users
-// LinkedIn-style complete filtering with all missing features
-// Optimized for high performance with proper indexing, caching, and rate limiting
 import { v4 as uuidv4 } from "uuid";
 import logger from "../utils/logger.js";
 import {
   HTTP_STATUS,
   ERROR_MESSAGES,
   SUCCESS_MESSAGES,
-} from "../constants/http.js";
-import CustomError from "../utils/CustomError.js";
-import CustomSuccess from "../utils/CustomSuccess.js";
+} from "../constants/messages.js";
+import CustomError from "../utils/customError.js";
+import CustomSuccess from "../utils/customSuccess.js";
 import Job from "../model/job.model.js";
-import Company from "../model/company.model.js";
-// import SavedSearch from "../models/SavedSearch.js"; // Assume this model exists; create if not
+import SearchModel, {PersonalizationEngine} from "../model/search.model.js";
 import { JobEventService, StatsService } from "../model/job.model.js";
 import redisClient from "../config/redis.js";
-import { sanitizeInput } from "../utils/security.js";
-import { PersonalizationEngine } from "../model/searchHistory.model.js"; // Assume from your previous code
-import booleanParser from "boolean-parser";
+import { generateSecureId, sanitizeInput } from "../utils/security.js";
 import {
   validateCompleteFilterInput,
   buildOptimizedQuery,
   getSortOptions,
 } from "../validations/filter.validations.js";
+import { booleanParser } from "../utils/boolean.parser.js";
 
 // *MAIN UNIFIED SEARCH & FILTER CONTROLLER*
 export const searchAndFilterJobs = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId()();
   const startTime = Date.now();
   const userId = req.user?.id;
 
@@ -330,7 +324,7 @@ export const searchAndFilterJobs = async (req, res) => {
 };
 // *FILTER SUGGESTIONS API* (For auto-complete)
 export const getFilterSuggestions = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const { type, query } = req.query;
 
   try {
@@ -393,7 +387,7 @@ export const getFilterSuggestions = async (req, res) => {
 };
 // *POPULAR FILTERS API* (For trending searches)
 export const getPopularFilters = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId;
 
   try {
     const cacheKey = "popular:filters";
@@ -459,7 +453,7 @@ export const getPopularFilters = async (req, res) => {
 };
 // *FILTER COUNTS API* (For showing result counts)
 export const getFilterCounts = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId;
 
   try {
     const { baseFilters } = req.body; // Current applied filters
@@ -543,7 +537,7 @@ export const getFilterCounts = async (req, res) => {
 };
 // *SAVED SEARCHES API* (LinkedIn-style saved searches)
 export const saveSearchQuery = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const userId = req.user?.id;
 
   if (!userId) {
@@ -560,7 +554,7 @@ export const saveSearchQuery = async (req, res) => {
 
     const savedSearch = {
       userId,
-      name: name || "My Search",
+      name: name || "My ModelSearchModel",
       filters,
       alertFrequency: alertFrequency || "daily", // daily, weekly, monthly
       createdAt: new Date(),
@@ -569,7 +563,7 @@ export const saveSearchQuery = async (req, res) => {
     };
 
     // Save to database (uncommented and implemented)
-    const result = await SavedSearch.create(savedSearch);
+    const result = await SearchModel.create(savedSearch);
 
     logger.info(`[${requestId}] Search query saved`, { userId, name });
 
@@ -593,30 +587,38 @@ export const saveSearchQuery = async (req, res) => {
 };
 // *ADVANCED SEARCH WITH BOOLEAN OPERATORS* (For power users)
 export const advancedBooleanSearch = async (req, res) => {
-  const requestId = uuidv4();
+  const requestId = generateSecureId();
   const userId = req.user?.id;
   const { booleanQuery, filters = {}, page = 1, limit = 20 } = req.query;
 
   try {
-    // Parse boolean query using library
-    const parsed = booleanParser.parse(booleanQuery);
+    if (!booleanQuery) {
+      return res.status(HTTP_STATUS.BAD_REQUEST).json(
+        new CustomError({
+          success: false,
+          message: "Boolean query is required",
+        })
+      );
+    }
 
+    // Use the custom parser
+    const parsed = booleanParser.parse(booleanQuery);
     const query = buildOptimizedQuery(filters);
 
-    // Convert parsed boolean to Mongo query (simplified; extend for full nesting)
-    const booleanMongoQuery = parsed.map((group) => ({
-      $or: group.map((term) => ({
-        $or: [
-          { title: new RegExp(term, "i") },
-          { "description.summary": new RegExp(term, "i") },
-          { "skills.name": new RegExp(term, "i") },
-        ],
-      })),
-    }));
+    // Convert parsed boolean to Mongo query
+    const booleanMongoQuery = booleanParser.parseToMongoQuery(booleanQuery, [
+      'title',
+      'description.summary',
+      'skills.name'
+    ]);
 
-    if (booleanMongoQuery.length > 0) {
-      query.$and = query.$and || [];
-      query.$and.push(...booleanMongoQuery);
+    // Merge with existing query
+    if (Object.keys(booleanMongoQuery).length > 0) {
+      if (query.$and) {
+        query.$and.push(booleanMongoQuery);
+      } else {
+        query = { ...query, ...booleanMongoQuery };
+      }
     }
 
     const jobs = await Job.find(query)
@@ -643,6 +645,7 @@ export const advancedBooleanSearch = async (req, res) => {
         query: {
           boolean: booleanQuery,
           parsed,
+          mongoQuery: booleanMongoQuery,
         },
       },
     });
@@ -658,6 +661,7 @@ export const advancedBooleanSearch = async (req, res) => {
     logger.error(`[${requestId}] Advanced search failed: ${error.message}`, {
       userId,
       booleanQuery,
+      error: error.stack,
     });
     return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(
       new CustomError({
@@ -671,7 +675,7 @@ export const advancedBooleanSearch = async (req, res) => {
 // // GET /jobs/filter/location - Filter jobs by location
 // // Controller: Filters jobs by location (GET /jobs/filter/location)
 //   export const filterByLocation = async (req, res) => {
-//   const requestId = uuidv4();
+//   const requestId = generateSecureId()();
 //   const startTime = Date.now();
 //   const userId = req.user?.id;
 //   const { city, state, remote, nearMe, page = 1, limit = 20 } = req.query;
@@ -810,7 +814,7 @@ export const advancedBooleanSearch = async (req, res) => {
 // // GET /jobs/filter/salary - Filter jobs by salary
 // // Controller: Filters jobs by salary (GET /jobs/filter/salary)
 // export const filterBySalary = async (req, res) => {
-//   const requestId = uuidv4();
+//   const requestId = generateSecureId()();
 //   const startTime = Date.now();
 //   const userId = req.user?.id;
 //   const { minSalary, maxSalary, range, page = 1, limit = 20 } = req.query;
@@ -946,7 +950,7 @@ export const advancedBooleanSearch = async (req, res) => {
 // // GET /jobs/filter/job-type - Filter jobs by job type
 // // Controller: Filters jobs by job type (GET /jobs/filter/job-type)
 // export const filterByJobType = async (req, res) => {
-//   const requestId = uuidv4();
+//   const requestId = generateSecureId()();
 //   const startTime = Date.now();
 //   const userId = req.user?.id;
 //   const { jobType, page = 1, limit = 20 } = req.query;
@@ -1050,7 +1054,7 @@ export const advancedBooleanSearch = async (req, res) => {
 // // GET /jobs/filter/experience - Filter jobs by experience level
 // // Controller: Filters jobs by experience level (GET /jobs/filter/experience)
 // export const filterByExperience = async (req, res) => {
-//   const requestId = uuidv4();
+//   const requestId = generateSecureId()();
 //   const startTime = Date.now();
 //   const userId = req.user?.id;
 //   const { experienceLevel, page = 1, limit = 20 } = req.query;
@@ -1154,7 +1158,7 @@ export const advancedBooleanSearch = async (req, res) => {
 // // GET /jobs/filter/industry - Filter jobs by industry
 // // Controller: Filters jobs by industry (GET /jobs/filter/industry)
 // export const filterByIndustry = async (req, res) => {
-//   const requestId = uuidv4();
+//   const requestId = generateSecureId()();
 //   const startTime = Date.now();
 //   const userId = req.user?.id;
 //   const { industry, page = 1, limit = 20 } = req.query;
@@ -1258,7 +1262,7 @@ export const advancedBooleanSearch = async (req, res) => {
 // // GET /jobs/filter/skills - Filter jobs by skills
 // // Controller: Filters jobs by skills (GET /jobs/filter/skills)
 // export const filterBySkills = async (req, res) => {
-//   const requestId = uuidv4();
+//   const requestId = generateSecureId()();
 //   const startTime = Date.now();
 //   const userId = req.user?.id;
 //   const { skills, page = 1, limit = 20 } = req.query;
@@ -1372,7 +1376,7 @@ export const advancedBooleanSearch = async (req, res) => {
 // // GET /jobs/filter/education - Filter jobs by education level
 // // Controller: Filters jobs by education (GET /jobs/filter/education)
 // export const filterByEducation = async (req, res) => {
-//   const requestId = uuidv4();
+//   const requestId = generateSecureId()();
 //   const startTime = Date.now();
 //   const userId = req.user?.id;
 //   const { education, page = 1, limit = 20 } = req.query;
@@ -1476,7 +1480,7 @@ export const advancedBooleanSearch = async (req, res) => {
 // // GET /jobs/filter/smart - Apply smart filters
 // // Controller: Applies smart filters to jobs (GET /jobs/filter/smart)
 // export const applySmartFilters = async (req, res) => {
-//   const requestId = uuidv4();
+//   const requestId = generateSecureId()();
 //   const startTime = Date.now();
 //   const userId = req.user?.id;
 //   const {

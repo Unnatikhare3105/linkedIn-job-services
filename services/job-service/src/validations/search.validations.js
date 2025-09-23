@@ -1,8 +1,8 @@
 
 import Joi from 'joi';
-import { HTTP_STATUS } from '../constants/http.js';
-import CustomError from '../utils/CustomError.js';
-import UserActivity from '../models/UserActivity.js';
+import { HTTP_STATUS } from '../constants/messages.js';
+import CustomError from '../utils/customError.js';
+import UserInteractionModel from '../model/userInteraction.model.js';
 
 export const validateSearchInput = (input) => {
   const schema = Joi.object({
@@ -94,7 +94,7 @@ export const validateRecentlyViewedInput = async (input) => {
 
   // Async validation to ensure user has activity records
   try {
-    const hasActivity = await UserActivity.exists({ userId: input.userId, type: 'view', entityType: 'job' });
+    const hasActivity = await UserInteractionModel.exists({ userId: input.userId, type: 'view', entityType: 'job' });
     if (!hasActivity) {
       return {
         error: new CustomError({
